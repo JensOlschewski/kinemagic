@@ -1,0 +1,63 @@
+hardpoints:
+  P1: [0.0, 0.0, 0.0]
+  P2: [100.0, 0.0, 50.0]
+  P3: [200.0, 0.0, 0.0]
+bodies:
+  B1:
+    body_id: 1
+    side: left
+    cm: [50.0, 0.0, 25.0]
+    points_on_body: [P1, P2]
+  B2:
+    body_id: 2
+    side: right
+    cm: [150.0, 0.0, 25.0]
+    points_on_body: [P1, P2, P3]
+joints:
+  primary:
+    J1:
+      joint_id: 1
+      joint_type: revolute
+      i:
+        body: 0
+        position: P1
+        orientation: { method: euler, euler_angles: [180, 90, 0] }
+      j:
+        body: 1
+        position: P1
+        orientation: { method: euler, euler_angles: [180, 90, 0] }
+    J2:
+      joint_id: 2
+      joint_type: revolute
+      i:
+        body: 1
+        position: P2
+        orientation: { method: euler, euler_angles: [180, 90, 0] }
+      j:
+        body: 2
+        position: P2
+        orientation: { method: euler, euler_angles: [180, 90, 0] }
+  secondary:
+    JS3:
+      joint_id: 1
+      joint_type: inplane
+      i:
+        body: 0
+        position: P3
+        orientation: { method: euler, euler_angles: [0, 0, 0] }
+      j:
+        body: 2
+        position: P3
+        orientation: { method: euler, euler_angles: [0, 0, 0] }
+drives:
+  relonomic_drives:
+    linear_drive:
+      signal: ["SIN(2*PI*1/10*TIME)*1", "~", "~", "~", "~", "~"]
+      i: 0
+      j: 2
+      joint_id: 1
+      joint_topology: secondary
+solver:
+  t_start: 0.0
+  t_end: 100
+  h: 0.01

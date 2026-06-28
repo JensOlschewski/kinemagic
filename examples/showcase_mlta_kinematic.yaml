@@ -1,0 +1,450 @@
+hardpoints:
+  U: [4700.0, -568.02, 555.0]
+  L: [3945.2, -539.68, 436.38]
+  RUi: [4297.39, -606.67, 578.95]
+  RUo: [4297.39, -682.41, 578.95]
+  RU: [4297.39, -644.54, 578.95]
+  RL: [4276.4, -598.85, 296.38]
+  SL: [4307.1, -488.57, 338.14]
+  SU: [4312.84, -488.64, 524.19]
+  BU: [4243.57, -552.47, 930.07]
+  BL: [4236.64, -560.85, 825.33]
+  DL: [4210.0, -593.0, 420.0]
+  DU: [4245.0, -551.39, 957.6]
+  SC: [4523.84, 0.0, 531.14]
+  QT: [4523.84, -575.0, 531.14]
+  RM: [4283.01, -735.91, 476.96]
+  RA: [4283.01, -739.1, 190.98]
+  RN: [4282.61, -835.9, 478.08]
+  P: [4283.01, -739.1, 150.0]
+
+bodies:
+  B1_Link:
+    body_id: 1
+    side: left
+    cm: [4110.8, -569.27, 366.38]
+    points_on_body: [L, RL]
+  B2_Wheelcarrier:
+    body_id: 2
+    side: left
+    cm: [4286.9, -621.69, 437.67]
+    points_on_body: [RUi, RUo, RU, RL, SL, DL, RM, BL]
+  B3_Wheel:
+    body_id: 3
+    side: left
+    cm: [4283.01, -735.91, 476.96]
+    points_on_body: [RM, RN, RA]
+  B4_Wheelpatch:
+    body_id: 4
+    side: left
+    cm: [4283.01, -739.1, 190.98]
+    points_on_body: [RA, RN]
+  B5_Table:
+    body_id: 5
+    side: left
+    cm: [4283.01, -739.1, 170.49]
+    points_on_body: [RA, P]
+  B6_TBE:
+    body_id: 6
+    side: left
+    cm: [4523.84, -575.0, 531.1]
+    points_on_body: [RUi, RUo, RU, QT, SC, U]
+  B7_VirtBody:
+    body_id: 7
+    side: left
+    cm: [4700.0, -568.02, 555.0]
+    points_on_body: [U]
+  B8_Link:
+    body_id: 8
+    side: right
+    cm: [4110.8, 569.27, 366.38]
+    points_on_body: [L, RL]
+  B9_Wheelcarrier:
+    body_id: 9
+    side: right
+    cm: [4286.9, 621.69, 437.67]
+    points_on_body: [RUi, RUo, RU, RL, SL, DL, RM, BL]
+  B10_Wheel:
+    body_id: 10
+    side: right
+    cm: [4283.01, 735.91, 476.96]
+    points_on_body: [RM, RN, RA]
+  B11_Wheelpatch:
+    body_id: 11
+    side: right
+    cm: [4283.01, 739.1, 190.98]
+    points_on_body: [RA, RN]
+  B12_Table:
+    body_id: 12
+    side: right
+    cm: [4283.01, 739.1, 170.49]
+    points_on_body: [RA, P]
+  B13_TBE:
+    body_id: 13
+    side: right
+    cm: [4523.84, 575.0, 531.1]
+    points_on_body: [RUi, RUo, RU, QT, SC, U]
+  B14_VirtBody:
+    body_id: 14
+    side: right
+    cm: [4700.0, 568.02, 555.0]
+    points_on_body: [U]
+
+joints:
+  primary:
+    L1:
+      joint_id: 1
+      joint_type: universal
+      i:
+        body: 0
+        position: L
+        orientation:
+          method: two-points
+          p1: L
+          p2: RL
+          axis: X
+          helpvec: [0, 1, 0]
+          axisortho: Y
+      j:
+        body: 1
+        position: L
+        orientation:
+          method: two-points
+          p1: L
+          p2: RL
+          axis: X
+          helpvec: [0, 1, 0]
+          axisortho: Y
+    RL2:
+      joint_id: 2
+      joint_type: spherical
+      i:
+        body: 1
+        position: RL
+        orientation: { method: euler, euler_angles: [0, 0, 0] }
+      j:
+        body: 2
+        position: RL
+        orientation: { method: euler, euler_angles: [0, 0, 0] }
+    RM3:
+      joint_id: 3
+      joint_type: revolute
+      i:
+        body: 2
+        position: RM
+        orientation:
+          method: two-points
+          p1: RM
+          p2: RN
+          axis: Z
+          helpvec: [0, 0, 1]
+          axisortho: X
+      j:
+        body: 3
+        position: RM
+        orientation:
+          method: two-points
+          p1: RM
+          p2: RN
+          axis: Z
+          helpvec: [0, 0, 1]
+          axisortho: X
+    RA4:
+      joint_id: 4
+      joint_type: revolute
+      i:
+        body: 3
+        position: RA
+        orientation:
+          method: two-points
+          p1: RA
+          p2: "(RA+100*(cross((RN-RA),[0,0,1])/norm(cross((RN-RA),[0,0,1]))))"
+          axis: Z
+          helpvec: [0, 1, 0]
+          axisortho: X
+      j:
+        body: 4
+        position: RA
+        orientation:
+          method: two-points
+          p1: RA
+          p2: "(RA+100*(cross((RN-RA),[0,0,1])/norm(cross((RN-RA),[0,0,1]))))"
+          axis: Z
+          helpvec: [0, 1, 0]
+          axisortho: X
+    RA5:
+      joint_id: 5
+      joint_type: planar
+      i:
+        body: 5
+        position: RA
+        orientation: { method: euler, euler_angles: [0, 0, 0] }
+      j:
+        body: 4
+        position: RA
+        orientation: { method: euler, euler_angles: [0, 0, 0] }
+    RU6:
+      joint_id: 6
+      joint_type: revolute
+      i:
+        body: 2
+        position: RU
+        orientation: { method: euler, euler_angles: [180, 90, 0] }
+      j:
+        body: 6
+        position: RU
+        orientation: { method: euler, euler_angles: [180, 90, 0] }
+    U7:
+      joint_id: 7
+      joint_type: spherical
+      i:
+        body: 6
+        position: U
+        orientation: { method: euler, euler_angles: [0, 0, 0] }
+      j:
+        body: 7
+        position: U
+        orientation: { method: euler, euler_angles: [0, 0, 0] }
+    L8:
+      joint_id: 8
+      joint_type: universal
+      i:
+        body: 0
+        position: L
+        orientation:
+          method: two-points
+          p1: L
+          p2: RL
+          axis: X
+          helpvec: [0, -1, 0]
+          axisortho: Y
+      j:
+        body: 8
+        position: L
+        orientation:
+          method: two-points
+          p1: L
+          p2: RL
+          axis: X
+          helpvec: [0, -1, 0]
+          axisortho: Y
+    RL9:
+      joint_id: 9
+      joint_type: spherical
+      i:
+        body: 8
+        position: RL
+        orientation: { method: euler, euler_angles: [0, 0, 0] }
+      j:
+        body: 9
+        position: RL
+        orientation: { method: euler, euler_angles: [0, 0, 0] }
+    RM10:
+      joint_id: 10
+      joint_type: revolute
+      i:
+        body: 9
+        position: RM
+        orientation:
+          method: two-points
+          p1: RM
+          p2: RN
+          axis: Z
+          helpvec: [0, 0, 1]
+          axisortho: X
+      j:
+        body: 10
+        position: RM
+        orientation:
+          method: two-points
+          p1: RM
+          p2: RN
+          axis: Z
+          helpvec: [0, 0, 1]
+          axisortho: X
+    RA11:
+      joint_id: 11
+      joint_type: revolute
+      i:
+        body: 10
+        position: RA
+        orientation:
+          method: two-points
+          p1: RA
+          p2: "(RA+100*(cross((RN-RA),[0,0,1])/norm(cross((RN-RA),[0,0,1]))))"
+          axis: Z
+          helpvec: [0, 1, 0]
+          axisortho: X
+      j:
+        body: 11
+        position: RA
+        orientation:
+          method: two-points
+          p1: RA
+          p2: "(RA+100*(cross((RN-RA),[0,0,1])/norm(cross((RN-RA),[0,0,1]))))"
+          axis: Z
+          helpvec: [0, 1, 0]
+          axisortho: X
+    RA12:
+      joint_id: 12
+      joint_type: planar
+      i:
+        body: 12
+        position: RA
+        orientation: { method: euler, euler_angles: [0, 0, 0] }
+      j:
+        body: 11
+        position: RA
+        orientation: { method: euler, euler_angles: [0, 0, 0] }
+    RU13:
+      joint_id: 13
+      joint_type: revolute
+      i:
+        body: 9
+        position: RU
+        orientation: { method: euler, euler_angles: [180, 90, 0] }
+      j:
+        body: 13
+        position: RU
+        orientation: { method: euler, euler_angles: [180, 90, 0] }
+    U14:
+      joint_id: 14
+      joint_type: spherical
+      i:
+        body: 13
+        position: U
+        orientation: { method: euler, euler_angles: [0, 0, 0] }
+      j:
+        body: 14
+        position: U
+        orientation: { method: euler, euler_angles: [0, 0, 0] }
+
+  secondary:
+    SCI:
+      joint_id: 1
+      joint_type: revolute
+      i:
+        body: 6
+        position: SC
+        orientation: { method: euler, euler_angles: [180, 90, 0] }
+      j:
+        body: 13
+        position: SC
+        orientation: { method: euler, euler_angles: [180, 90, 0] }
+    PII:
+      joint_id: 2
+      joint_type: prismatic
+      i:
+        body: 0
+        position: P
+        orientation: { method: euler, euler_angles: [0, 0, 0] }
+      j:
+        body: 5
+        position: P
+        orientation: { method: euler, euler_angles: [0, 0, 0] }
+    PIII:
+      joint_id: 3
+      joint_type: prismatic
+      i:
+        body: 0
+        position: P
+        orientation: { method: euler, euler_angles: [0, 0, 0] }
+      j:
+        body: 12
+        position: P
+        orientation: { method: euler, euler_angles: [0, 0, 0] }
+    UIV:
+      joint_id: 4
+      joint_type: prismatic
+      i:
+        body: 7
+        position: U
+        orientation:
+          method: lowest-energy
+          euler_angles: [160, 70, 20]
+          stiffness: [1725, 475, 500, 0, 0, 0]
+          fconstr: [0, 1, 0]
+          defaxis: Z
+          helpvec: [1, 0, 0]
+          axisortho: Y
+      j:
+        body: 0
+        position: U
+        orientation:
+          method: lowest-energy
+          euler_angles: [160, 70, 20]
+          stiffness: [1725, 475, 500, 0, 0, 0]
+          fconstr: [0, 1, 0]
+          defaxis: Z
+          helpvec: [1, 0, 0]
+          axisortho: Y
+    UV:
+      joint_id: 5
+      joint_type: prismatic
+      i:
+        body: 14
+        position: U
+        orientation:
+          method: lowest-energy
+          euler_angles: [20, 70, 160]
+          stiffness: [1725, 475, 500, 0, 0, 0]
+          fconstr: [0, -1, 0]
+          defaxis: Z
+          helpvec: [1, 0, 0]
+          axisortho: Y
+      j:
+        body: 0
+        position: U
+        orientation:
+          method: lowest-energy
+          euler_angles: [20, 70, 160]
+          stiffness: [1725, 475, 500, 0, 0, 0]
+          fconstr: [0, -1, 0]
+          defaxis: Z
+          helpvec: [1, 0, 0]
+          axisortho: Y
+    UVI:
+      joint_id: 6
+      joint_type: symmetry
+      i:
+        body: 7
+        position: U
+        orientation:
+          method: lowest-energy
+          euler_angles: [160, 70, 20]
+          stiffness: [1725, 475, 500, 0, 0, 0]
+          fconstr: [0, 1, 0]
+          defaxis: Z
+          helpvec: [1, 0, 0]
+          axisortho: Y
+      j:
+        body: 14
+        position: U
+        orientation:
+          method: lowest-energy
+          euler_angles: [20, 70, 160]
+          stiffness: [1725, 475, 500, 0, 0, 0]
+          fconstr: [0, -1, 0]
+          defaxis: Z
+          helpvec: [1, 0, 0]
+          axisortho: Y
+
+drives:
+  relonomic_drives:
+    b5:
+      signal: ["~", "~", "SIN(2*PI*1/100*TIME)*100", "~", "~", "~"]
+      i: 0
+      j: 5
+      joint_topology: secondary
+      joint_id: 2
+    b12:
+      signal: ["~", "~", "SIN(2*PI*1/100*TIME)*100", "~", "~", "~"]
+      i: 0
+      j: 12
+      joint_topology: secondary
+      joint_id: 3
+
+solver:
+  t_start: 0
+  t_end: 100
+  h: 0.1
