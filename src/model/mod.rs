@@ -1,8 +1,5 @@
-use std::collections::BTreeMap;
+pub mod bodies;
+pub mod hardpoints;
 
-use nalgebra::Vector3;
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Hardpoints {
-    points: HashMap<String, Vector3<f64>>,
-}
+pub use bodies::{Bodies, BodyId, BodySpec, Pose, Side};
+pub use hardpoints::Hardpoints;

@@ -1,8 +1,10 @@
 use serde::de::DeserializeOwned;
 
+pub mod bodies;
 pub mod hardpoints;
+pub mod model;
 
-pub use hardpoints::YamlHardpoints;
+pub use model::YamlModel;
 
 pub fn read_yaml_str<T>(yaml: &str) -> Result<T, serde_yaml_ng::Error>
 where

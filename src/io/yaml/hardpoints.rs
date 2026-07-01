@@ -1,11 +1,22 @@
 use std::collections::BTreeMap;
 
+use crate::model::Hardpoints;
 use nalgebra::Vector3;
 use serde::Deserialize;
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
-pub struct YamlHardpoints {
-    pub hardpoints: BTreeMap<String, YamlHardpointCoordinates>,
+pub struct YamlHardpoints(pub BTreeMap<String, YamlHardpointCoordinates>);
+
+impl From<YamlHardpoints> for Hardpoints {
+    fn from(value: YamlHardpoints) -> Self {
+        Hardpoints::new(
+            value
+                .0
+                .into_iter()
+                .map(|(name, coordinates)| (name, coordinates.to_vector()))
+                .collect(),
+        )
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]

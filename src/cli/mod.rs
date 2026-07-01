@@ -1,7 +1,7 @@
 pub mod check;
 pub mod solve;
 
-use std::path::{PathBuf};
+use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
@@ -27,7 +27,12 @@ pub struct IOArgs {
     #[arg(value_name = "INPUT", help = "Input file path")]
     pub input: PathBuf,
     // optional output file path, defaults to stdout
-    #[arg(long, short, value_name = "OUTPUT", help = "Output file path, defaults to stdout")]
+    #[arg(
+        long,
+        short,
+        value_name = "OUTPUT",
+        help = "Output file path, defaults to stdout"
+    )]
     pub output: Option<PathBuf>,
 }
 
@@ -49,7 +54,7 @@ pub struct SolveArgs {
 
 #[derive(Debug, Clone, ValueEnum)]
 pub enum InputFormat {
-    Yaml
+    Yaml,
 }
 
 #[derive(Clone, Debug, ValueEnum)]
