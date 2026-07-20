@@ -2,20 +2,24 @@ use serde::Deserialize;
 
 use super::bodies::YamlBodies;
 use super::hardpoints::YamlHardpoints;
-use crate::model::{BodySpec, Hardpoints};
+use super::joints::YamlJoints;
+use crate::model::{BodySpec, Hardpoints, JointSpec};
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct YamlModel {
     pub hardpoints: YamlHardpoints,
     #[serde(default)]
     pub bodies: YamlBodies,
+    #[serde(default)]
+    pub joints: YamlJoints,
 }
 
 impl YamlModel {
-    pub fn into_model_parts(self) -> (Hardpoints, Vec<BodySpec>) {
+    pub fn into_model_parts(self) -> Result<(Hardpoints, Vec<BodySpec>, Vec<JointSpec>), String> {
         let hardpoints = self.hardpoints.into();
-        let bodies = self.bodies.into();
+        let bodies = self.bodies.try_into()?;
+        let joints = self.joints.into();
 
-        (hardpoints, bodies)
+       Ok((hardpoints, bodies, joints))
     }
 }

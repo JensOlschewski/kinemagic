@@ -2,7 +2,10 @@ use serde::de::DeserializeOwned;
 
 pub mod bodies;
 pub mod hardpoints;
+pub mod joints;
 pub mod model;
+pub mod orientation;
+pub mod side;
 
 pub use model::YamlModel;
 

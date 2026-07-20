@@ -5,51 +5,152 @@ use std::fmt;
 
 use nalgebra::{Matrix3, UnitQuaternion, Vector3};
 
-use super::Hardpoints;
+use super::{Hardpoints, Side};
 
-#[derive(Debug, Clone, PartialEq)]
 pub struct Bodies {
-    pub bodies: BTreeMap<String, Body>,
+    bodies: BTreeMap<BodyId, Body>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
 pub struct Body {
-    pub name: String,
-    pub id: BodyId,
-    pub side: Side,
-    pub pose: Pose,
-    pub points: BTreeMap<String, BodyPoint>,
+    name: String,
+    id: BodyId,
+    side: Side,
+    pose: BodyPose,
+    points: BTreeMap<String, BodyPoint>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
 pub struct BodySpec {
     pub name: String,
     pub id: BodyId,
     pub side: Side,
-    pub pose: Pose,
+    pub pose: BodyPose,
     pub point_names: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Pose {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+/// u16 2^16 bodies are possible, which is more than
+/// enough for any practical application.
+pub struct BodyId(pub u16);
+
+impl BodyId {
+    pub const GROUND: Self = Self(0);
+}
+
+#[derive(Clone)]
+pub struct BodyPose {
     /// Global position of the body reference point
     pub position: Vector3<f64>,
-
     /// Body orientation as normalized Euler parameters, stored as a unit quaternion.
     pub orientation: UnitQuaternion<f64>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct BodyId(pub u32);
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum Side {
-    Left,
-    Right,
-    Single,
+pub struct BodyPoint {
+    /// Point position in the body-fixed local frame.
+    pub local_position: Vector3<f64>,
 }
 
-impl Pose {
+impl Bodies {
+    fn new(bodies: BTreeMap<BodyId, Body>) -> Self {
+        Self { bodies }
+    }
+
+    pub fn build(specs: &[BodySpec], hardpoints: &Hardpoints) -> Result<Self, BodiesError> {
+        let mut bodies = BTreeMap::new();
+        let mut used_names = BTreeSet::new();
+
+        insert_body(
+            &mut bodies,
+            &mut used_names,
+            build_ground_body(hardpoints),
+        )?;
+
+        for spec in specs {
+            insert_body(
+                &mut bodies,
+                &mut used_names,
+                build_body_from_spec(spec, hardpoints)?,
+            )?;
+        }
+
+        Ok(Self::new(bodies))
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &Body> {
+        self.bodies.values()
+    }
+
+    pub fn get_by_id(&self, body_id: BodyId) -> Option<&Body> {
+        self.bodies.get(&body_id)
+    }
+
+    pub fn global_point(
+        &self,
+        body_id: BodyId,
+        point_name: &str,
+        side: Side,
+    ) -> Result<Vector3<f64>, BodiesError> {
+        let body = self
+            .get_by_id(body_id)
+            .ok_or_else(|| BodiesError::MissingBodyId(body_id))?;
+
+        let point = body
+            .global_point(point_name)
+            .ok_or_else(|| BodiesError::MissingPoint {
+                id: body_id,
+                point_name: point_name.to_string(),
+            })?;
+
+        let point = if body_id == BodyId::GROUND {
+            point_for_side(&point, &side)
+        } else {
+            point
+        };
+
+        Ok(point)
+    }
+}
+
+impl Body {
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn id(&self) -> BodyId {
+        self.id
+    }
+
+    pub fn side(&self) -> Side {
+        self.side
+    }
+
+    pub fn pose(&self) -> &BodyPose {
+        &self.pose
+    }
+
+    pub fn position(&self) -> Vector3<f64> {
+        self.pose.position
+    }
+
+    pub fn global_points(&self) -> BTreeMap<String, Vector3<f64>> {
+        self.points
+            .iter()
+            .map(|(name, point)| {
+                (
+                    name.clone(),
+                    self.pose.local_to_global(point.local_position),
+                )
+            })
+            .collect()
+    }
+
+    pub fn global_point(&self, point_name: &str) -> Option<Vector3<f64>> {
+        self.points
+            .get(point_name)
+            .map(|point| self.pose.local_to_global(point.local_position))
+    }
+}
+
+impl BodyPose {
     pub fn new(position: Vector3<f64>, orientation: UnitQuaternion<f64>) -> Self {
         Self {
             position,
@@ -74,155 +175,72 @@ impl Pose {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct BodyPoint {
-    /// Point position in the body-fixed local frame.
-    pub local_position: Vector3<f64>,
-}
-
 impl BodyPoint {
     pub fn new(local_position: Vector3<f64>) -> Self {
         Self { local_position }
     }
 }
 
-impl Body {
-    pub fn position(&self) -> Vector3<f64> {
-        self.pose.position
-    }
-
-    pub fn global_points(&self) -> BTreeMap<String, Vector3<f64>> {
-        self.points
-            .iter()
-            .map(|(name, point)| {
-                (
-                    name.clone(),
-                    self.pose.local_to_global(point.local_position),
-                )
-            })
-            .collect()
-    }
-}
-
-impl Bodies {
-    pub fn new(bodies: BTreeMap<String, Body>) -> Self {
-        Self { bodies }
-    }
-
-    pub fn build(specs: &[BodySpec], hardpoints: &Hardpoints) -> Result<Self, BuildBodiesError> {
-        let mut bodies = BTreeMap::new();
-        let mut used_ids = BTreeSet::new();
-
-        insert_body(&mut bodies, &mut used_ids, build_ground_body(hardpoints))?;
-
-        for spec in specs {
-            insert_body(
-                &mut bodies,
-                &mut used_ids,
-                build_body_from_spec(spec, hardpoints)?,
-            )?;
-        }
-
-        Ok(Self::new(bodies))
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = (&String, &Body)> {
-        self.bodies.iter()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum BuildBodiesError {
+#[derive(Debug)]
+pub enum BodiesError {
+    DuplicateBodyName(String),
     DuplicateBodyId(BodyId),
-    MissingHardpoint {
-        body_name: String,
-        point_name: String,
-    },
+    MissingBodyId(BodyId),
+    MissingHardpoint { id: BodyId, point_name: String },
+    MissingPoint { id: BodyId, point_name: String },
 }
 
-impl fmt::Display for BuildBodiesError {
+impl fmt::Display for BodiesError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::DuplicateBodyName(name) => write!(f, "duplicate body name: {}", name),
             Self::DuplicateBodyId(id) => write!(f, "duplicate body id: {}", id.0),
-            Self::MissingHardpoint {
-                body_name,
-                point_name,
-            } => write!(
+            Self::MissingBodyId(id) => write!(f, "missing body id: {}", id.0),
+            Self::MissingHardpoint { id, point_name } => write!(
                 f,
-                "body '{body_name}' references missing hardpoint '{point_name}'"
+                "body {} references missing hardpoint '{point_name}'",
+                id.0
             ),
+            Self::MissingPoint { id, point_name } => {
+                write!(f, "body '{}' does not contain point '{point_name}'", id.0,)
+            }
         }
     }
 }
 
-impl Error for BuildBodiesError {}
-
-impl Side {
-    pub fn label(&self) -> &'static str {
-        match self {
-            Self::Left => "left",
-            Self::Right => "right",
-            Self::Single => "single",
-        }
-    }
-
-    pub fn label_short(&self) -> &'static str {
-        match self {
-            Self::Left => "l",
-            Self::Right => "r",
-            Self::Single => "s",
-        }
-    }
-}
+impl Error for BodiesError {}
 
 fn build_ground_body(hardpoints: &Hardpoints) -> Body {
-    let mut points = BTreeMap::new();
-
-    for (point_name, point) in hardpoints.iter() {
-        // Hardpoints mirrored across the XZ plane and added
-        // to the ground body for left and right sides.
-        points.insert(
-            point_key(BodyId(0), point_name, Side::Left),
-            BodyPoint::new(*point),
-        );
-        points.insert(
-            point_key(BodyId(0), point_name, Side::Right),
-            BodyPoint::new(mirror_xz(point)),
-        );
-    }
+    let points = hardpoints
+        .iter()
+        .map(|(name, point)| (name.clone(), BodyPoint::new(*point)))
+        .collect();
 
     // Returning ground body
     Body {
         name: "ground".to_string(),
-        id: BodyId(0),
+        id: BodyId::GROUND,
         side: Side::Single,
-        pose: Pose::identity(),
+        pose: BodyPose::identity(),
         points,
     }
 }
 
-fn build_body_from_spec(
-    spec: &BodySpec,
-    hardpoints: &Hardpoints,
-) -> Result<Body, BuildBodiesError> {
+fn build_body_from_spec(spec: &BodySpec, hardpoints: &Hardpoints) -> Result<Body, BodiesError> {
     let mut points = BTreeMap::new();
 
-    for point_name in &spec.point_names {
-        let point =
-            hardpoints
-                .get(point_name)
-                .ok_or_else(|| BuildBodiesError::MissingHardpoint {
-                    body_name: spec.name.clone(),
-                    point_name: point_name.clone(),
-                })?;
+    for name in &spec.point_names {
+        let point = hardpoints
+            .get(name)
+            .ok_or_else(|| BodiesError::MissingHardpoint {
+                id: spec.id,
+                point_name: name.clone(),
+            })?;
 
         let global_position = point_for_side(point, &spec.side);
         let local_position = spec.pose.global_to_local(global_position);
 
-        points.insert(
-            point_key(spec.id, point_name, spec.side.clone()),
-            BodyPoint::new(local_position),
-        );
+        points.insert(name.clone(), BodyPoint::new(local_position));
     }
 
     Ok(Body {
@@ -235,15 +253,19 @@ fn build_body_from_spec(
 }
 
 fn insert_body(
-    bodies: &mut BTreeMap<String, Body>,
-    used_ids: &mut BTreeSet<BodyId>,
+    bodies: &mut BTreeMap<BodyId, Body>,
+    used_names: &mut BTreeSet<String>,
     body: Body,
-) -> Result<(), BuildBodiesError> {
-    if !used_ids.insert(body.id) {
-        return Err(BuildBodiesError::DuplicateBodyId(body.id));
+) -> Result<(), BodiesError> {
+    if bodies.contains_key(&body.id) {
+        return Err(BodiesError::DuplicateBodyId(body.id));
     }
 
-    bodies.insert(body.name.clone(), body);
+    if !used_names.insert(body.name.clone()) {
+        return Err(BodiesError::DuplicateBodyName(body.name.clone()));
+    }
+
+    bodies.insert(body.id, body);
     Ok(())
 }
 
@@ -251,17 +273,6 @@ fn point_for_side(point: &Vector3<f64>, side: &Side) -> Vector3<f64> {
     match side {
         Side::Left | Side::Single => *point,
         Side::Right => mirror_xz(point),
-    }
-}
-
-fn point_key(body_id: BodyId, point_name: &str, side: Side) -> String {
-    let point_name = point_name.to_lowercase();
-    let body_id = body_id.0;
-
-    if body_id == 0 {
-        format!("{point_name}0_{}", side.label_short())
-    } else {
-        format!("{point_name}{}", body_id)
     }
 }
 

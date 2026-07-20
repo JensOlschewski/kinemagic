@@ -1,5 +1,11 @@
 pub mod bodies;
 pub mod hardpoints;
+pub mod joints;
+pub mod orientation;
+pub mod side;
 
-pub use bodies::{Bodies, BodyId, BodySpec, Pose, Side};
+pub use bodies::*;
 pub use hardpoints::Hardpoints;
+pub use joints::*;
+pub use orientation::*;
+pub use side::*;

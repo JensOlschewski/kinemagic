@@ -14,7 +14,8 @@ pub fn run_solve(args: SolveArgs) -> Result<(), Box<dyn Error>> {
     // other cases later possible
     let yaml = read_input(&io.input)?;
     let input: YamlModel = read_yaml_str(&yaml)?;
-    let (hardpoints, body_specs) = input.into_model_parts();
+
+    let (hardpoints, body_specs, _joint_specs) = input.into_model_parts()?;
     let bodies = Bodies::build(&body_specs, &hardpoints)?;
     let rendered = render_bodies_pretty(&bodies);
 

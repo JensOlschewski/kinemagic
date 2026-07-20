@@ -1,0 +1,22 @@
+hardpoints:
+  P1: [0.0, 0.0, 0.0]
+bodies:
+  B1:
+    body_id: 1
+    side: single
+    cm: [0.0, 0.0, -100.0]
+    orientation: [1.0, 0.0, 0.0, 0.0]
+    points_on_body: [P1]
+joints:
+  primary:
+    J1:
+      id: 1
+      type: spherical
+      i:
+        body_id: 0
+        point: P1
+        orientation: { method: euler, euler_angles: [0, 0, 0] }
+      j:
+        body_id: 1
+        point: P1
+        orientation: { method: euler, euler_angles: [0, 0, 0] }
