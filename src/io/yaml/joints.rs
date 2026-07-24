@@ -6,7 +6,6 @@ use super::orientation::YamlOrientation;
 use crate::model::{BodyId, JointEndpointSpec, JointId, JointKind, JointSpec, JointTopology};
 
 #[derive(Debug, Clone, PartialEq, Default, Deserialize)]
-
 pub struct YamlJoints {
     #[serde(default)]
     pub primary: BTreeMap<String, YamlJoint>,

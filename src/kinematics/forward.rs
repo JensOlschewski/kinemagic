@@ -8,11 +8,11 @@ use std::collections::BTreeMap;
 pub fn update_body_poses(
     state: &mut KinematicState,
     joints: &Joints,
-) -> Result<(), KinematicsError> { let expected_body_count = state.body_poses.len();
+) -> Result<(), KinematicsError> {
+    let expected_body_count = state.body_count();
 
     let ground_pose = state
-        .body_poses
-        .get(&BodyId::GROUND)
+        .get_body_pose(BodyId::GROUND)
         .cloned()
         .ok_or(KinematicsError::MissingBody(BodyId::GROUND))?;
 
@@ -34,8 +34,7 @@ pub fn update_body_poses(
         }
 
         let coordinates = state
-            .primary_coordinates
-            .get(&joint.key())
+            .joint_coordinates(joint.key())
             .ok_or(KinematicsError::MissingJointCoordinates(joint.key()))?;
 
         let calculated_pose = calculate_child_pose(joint, parent_pose, coordinates)?;
@@ -49,9 +48,10 @@ pub fn update_body_poses(
     }
 
     // Commit only after the complete calculation succeeds.
-    state.body_poses = new_poses;
+    state.replace_body_poses(new_poses);
 
-    Ok(()) }
+    Ok(())
+}
 
 pub fn calculate_child_pose(
     joint: &Joint,

@@ -1,4 +1,4 @@
-use nalgebra::{Rotation3, Vector3};
+use nalgebra::{Rotation3, UnitQuaternion, Vector3};
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt;
@@ -201,6 +201,14 @@ impl JointMarker {
             local_position: body_pose.global_to_local(position),
             local_orientation: body_rotation.inverse() * orientation,
         }
+    }
+
+    pub fn to_unit_quaternion(&self) -> nalgebra::UnitQuaternion<f64> {
+        UnitQuaternion::from_rotation_matrix(&self.local_orientation)
+    }
+
+    pub fn to_global_unit_quaternion(&self, body_pose: &BodyPose) -> UnitQuaternion<f64> {
+        body_pose.orientation * self.to_unit_quaternion()
     }
 
     pub fn global_position(&self, body_pose: &BodyPose) -> Vector3<f64> {

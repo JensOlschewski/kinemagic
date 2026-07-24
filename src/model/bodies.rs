@@ -58,11 +58,7 @@ impl Bodies {
         let mut bodies = BTreeMap::new();
         let mut used_names = BTreeSet::new();
 
-        insert_body(
-            &mut bodies,
-            &mut used_names,
-            build_ground_body(hardpoints),
-        )?;
+        insert_body(&mut bodies, &mut used_names, build_ground_body(hardpoints))?;
 
         for spec in specs {
             insert_body(
@@ -131,22 +127,23 @@ impl Body {
         self.pose.position
     }
 
-    pub fn global_points(&self) -> BTreeMap<String, Vector3<f64>> {
-        self.points
-            .iter()
-            .map(|(name, point)| {
-                (
-                    name.clone(),
-                    self.pose.local_to_global(point.local_position),
-                )
-            })
-            .collect()
-    }
+
 
     pub fn global_point(&self, point_name: &str) -> Option<Vector3<f64>> {
         self.points
             .get(point_name)
             .map(|point| self.pose.local_to_global(point.local_position))
+    }
+
+    pub fn global_points(&self) -> BTreeMap<String, Vector3<f64>> {
+        self.global_points_at(&self.pose)
+    }
+
+    pub fn global_points_at(&self, pose: &BodyPose) -> BTreeMap<String, Vector3<f64>> {
+        self.points
+            .iter()
+            .map(|(name, point)| (name.clone(), pose.local_to_global(point.local_position)))
+            .collect()
     }
 }
 

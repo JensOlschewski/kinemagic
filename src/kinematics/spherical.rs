@@ -27,7 +27,13 @@ pub fn explicit_position(
     point_j: &JointEndpoint,
     coordinates: &SphericalCoordinates,
 ) -> BodyPose {
-    let child_orientation = parent_pose.orientation * coordinates.relative_orientation;
+    let marker_i_orientation = point_i.local_marker.to_unit_quaternion();
+    let marker_j_orientation = point_j.local_marker.to_unit_quaternion();
+
+    let child_orientation = parent_pose.orientation
+            * marker_i_orientation
+            * coordinates.relative_orientation
+            * marker_j_orientation.inverse();
 
     let joint_position = parent_pose.local_to_global(point_i.local_marker.local_position);
 

@@ -1,4 +1,4 @@
-use nalgebra::{Rotation3, Vector3};
+use nalgebra::{Rotation3};
 
 use crate::model::joints::{Joint, JointEndpoint};
 use crate::model::{Bodies, Joints};
@@ -61,11 +61,11 @@ fn render_endpoint(rendered: &mut String, label: &str, endpoint: &JointEndpoint,
     ));
 
     rendered.push_str("    local position  ");
-    rendered.push_str(&format_point_row(&marker.local_position));
+    rendered.push_str(&super::format_point_row(&marker.local_position));
     rendered.push('\n');
 
     rendered.push_str("    global position ");
-    rendered.push_str(&format_point_row(&global_position));
+    rendered.push_str(&super::format_point_row(&global_position));
     rendered.push('\n');
 
     rendered.push_str("    local basis\n");
@@ -81,23 +81,6 @@ fn render_basis(rendered: &mut String, orientation: &Rotation3<f64>) {
     for (name, column) in names.into_iter().zip(orientation.matrix().column_iter()) {
         let axis = column.into_owned();
 
-        rendered.push_str(&format!("      {name} {}\n", format_point_row(&axis),));
+        rendered.push_str(&format!("      {name} {}\n", super::format_point_row(&axis),));
     }
-}
-
-fn format_point_row(point: &Vector3<f64>) -> String {
-    format!(
-        "[ {}  {}  {} ]",
-        format_number(point.x),
-        format_number(point.y),
-        format_number(point.z)
-    )
-}
-
-fn format_number(value: f64) -> String {
-    format!("{:>8.3}", sanitize_zero(value))
-}
-
-fn sanitize_zero(value: f64) -> f64 {
-    if value.abs() < 1.0e-12 { 0.0 } else { value }
 }

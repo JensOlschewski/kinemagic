@@ -1,11 +1,10 @@
 pub mod render;
 pub mod yaml;
 
-use std::{
-    fs,
-    io::{self, Write},
-    path::Path,
-};
+use std::fs;
+use::std::io::{self, Write};
+use::std::path::Path;
+
 
 pub fn read_input(input: &Path) -> io::Result<String> {
     fs::read_to_string(input)
@@ -29,7 +28,6 @@ pub fn write_output(output: Option<&Path>, rendered: &str) -> io::Result<()> {
     }
 }
 
-// Ensure the string ends with a newline character
 fn with_trailing_newline(s: &str) -> String {
     if s.ends_with('\n') {
         s.to_string()

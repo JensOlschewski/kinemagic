@@ -1,9 +1,55 @@
+//! YAML input format.
+//!
+//! ```yaml
+//! hardpoints:
+//!   P1: [0.0, 0.0, 0.0]
+//!
+//! bodies:
+//!   B1:
+//!     body_id: 1
+//!     side: single
+//!     cm: [0.0, 0.0, -100.0]
+//!     orientation: [1.0, 0.0, 0.0, 0.0]
+//!     points_on_body: [P1]
+//!
+//! joints:
+//!   primary:
+//!     J1:
+//!       id: 1
+//!       type: spherical
+//!       i:
+//!         body_id: 0
+//!         point: P1
+//!         orientation:
+//!           method: euler
+//!           euler_angles: [0.0, 0.0, 0.0]
+//!       j:
+//!         body_id: 1
+//!         point: P1
+//!         orientation:
+//!           method: euler
+//!           euler_angles: [0.0, 0.0, 0.0]
+//!
+//!   secondary: {}
+//!
+//! motion:
+//!   joint_coordinates:
+//!     J1:
+//!       relative_orientation:
+//!         method: quaternion
+//!         quaternion: [0.70710678, 0.0, 0.70710678, 0.0]
+//! ```
+//!
+//! Quaternion component order is `[w, x, y, z]`.
+//! Euler angles use degrees.
+
 use serde::Deserialize;
 
 use super::bodies::YamlBodies;
 use super::hardpoints::YamlHardpoints;
 use super::joints::YamlJoints;
-use crate::model::{BodySpec, Hardpoints, JointSpec};
+use super::motions::YamlMotions;
+use crate::model::{BodySpec, Hardpoints, JointSpec, MotionSpec};
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct YamlModel {
@@ -12,14 +58,18 @@ pub struct YamlModel {
     pub bodies: YamlBodies,
     #[serde(default)]
     pub joints: YamlJoints,
+    #[serde(default)]
+    pub motions: YamlMotions,
 }
 
 impl YamlModel {
-    pub fn into_model_parts(self) -> Result<(Hardpoints, Vec<BodySpec>, Vec<JointSpec>), String> {
+    pub fn into_model_parts(self) -> Result<(Hardpoints, Vec<BodySpec>, Vec<JointSpec>, Vec<MotionSpec>), String> {
         let hardpoints = self.hardpoints.into();
         let bodies = self.bodies.try_into()?;
         let joints = self.joints.into();
+        let motion = self.motions.into();
 
-       Ok((hardpoints, bodies, joints))
+        Ok((hardpoints, bodies, joints))
     }
 }
+

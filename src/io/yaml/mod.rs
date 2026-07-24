@@ -6,6 +6,7 @@ pub mod joints;
 pub mod model;
 pub mod orientation;
 pub mod side;
+pub mod motions;
 
 pub use model::YamlModel;
 
