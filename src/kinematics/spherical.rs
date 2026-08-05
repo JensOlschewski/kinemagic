@@ -2,7 +2,7 @@ use nalgebra::{Matrix3, SMatrix, UnitQuaternion, stack};
 
 use super::{ExplicitVelocity, ImplicitPosition, ImplicitVelocity, JointKinematicsInput};
 use crate::kinematics::shift_matrix;
-use crate::model::{JointEndpoint, BodyPose};
+use crate::model::{BodyPose, JointEndpoint};
 
 pub struct SphericalCoordinates {
     pub relative_orientation: UnitQuaternion<f64>,
@@ -31,9 +31,9 @@ pub fn explicit_position(
     let marker_j_orientation = point_j.local_marker.to_unit_quaternion();
 
     let child_orientation = parent_pose.orientation
-            * marker_i_orientation
-            * coordinates.relative_orientation
-            * marker_j_orientation.inverse();
+        * marker_i_orientation
+        * coordinates.relative_orientation
+        * marker_j_orientation.inverse();
 
     let joint_position = parent_pose.local_to_global(point_i.local_marker.local_position);
 

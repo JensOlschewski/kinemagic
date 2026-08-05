@@ -1,11 +1,8 @@
 use std::collections::BTreeMap;
 
-use super::{KinematicsError, spherical::SphericalCoordinates};
+use super::{KinematicsError, coordinates::JointCoordinates, spherical::SphericalCoordinates};
+use crate::model::motion::{MotionKind, MotionSpec};
 use crate::model::{Bodies, BodyId, BodyPose, JointKey, JointKind, Joints};
-
-pub enum JointCoordinates {
-    Spherical(SphericalCoordinates),
-}
 
 pub struct KinematicState {
     primary_coordinates: BTreeMap<JointKey, JointCoordinates>,
@@ -47,6 +44,25 @@ impl KinematicState {
 
                 Ok(())
             }
+        }
+    }
+
+    pub fn apply_motion(&mut self, motion: &MotionSpec) -> Result<(), KinematicsError> {
+        match motion.kind() {
+            MotionKind::JointCoordinates { key, coordinates } => {
+                let current = self
+                    .primary_coordinates
+                    .get_mut(key)
+                    .ok_or(KinematicsError::MissingJointCoordinates(*key))?;
+
+                match (current, coordinates) {
+                    (JointCoordinates::Spherical(current), JointCoordinates::Spherical(new)) => {
+                        current.relative_orientation = new.relative_orientation;
+                        Ok(())
+                    }
+                }
+            }
+            MotionKind::BodyPose { .. } => Err(KinematicsError::UnsupportedMotion("body-pose")),
         }
     }
 

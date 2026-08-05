@@ -1,9 +1,10 @@
+pub mod coordinates;
 pub mod forward;
 pub mod state;
 
 pub mod spherical;
 
-use crate::model::{BodyId, BodyPose, JointKind, JointKey, JointMarker};
+use crate::model::{BodyId, BodyPose, JointKey, JointKind, JointMarker};
 use nalgebra::{Matrix3, SMatrix, SVector, Vector3, stack};
 
 pub struct ImplicitPosition<const CONSTRAINTS: usize> {
@@ -73,6 +74,7 @@ pub fn shift_matrix(r_ji: &Vector3<f64>) -> SMatrix<f64, 6, 6> {
 pub enum KinematicsError {
     MissingBody(BodyId),
     UnsupportedJoint(JointKind),
+    UnsupportedMotion(&'static str),
     MissingJointCoordinates(JointKey),
     InvalidPrimaryTree,
 }
@@ -84,7 +86,10 @@ impl std::fmt::Display for KinematicsError {
         match self {
             Self::MissingBody(id) => write!(f, "missing body {}", id.0),
             Self::UnsupportedJoint(kind) => write!(f, "unsupported joint type: {kind:?}"),
-            Self::MissingJointCoordinates(key) => write!(f, "missing joint coordinates for joint: {key:?}"),
+            Self::UnsupportedMotion(kind) => write!(f, "unsupported motion type: {kind}"),
+            Self::MissingJointCoordinates(key) => {
+                write!(f, "missing joint coordinates for joint: {key:?}")
+            }
             Self::InvalidPrimaryTree => write!(f, "invalid tree"),
         }
     }

@@ -4,9 +4,9 @@ pub mod bodies;
 pub mod hardpoints;
 pub mod joints;
 pub mod model;
+pub mod motion;
 pub mod orientation;
 pub mod side;
-pub mod motions;
 
 pub use model::YamlModel;
 

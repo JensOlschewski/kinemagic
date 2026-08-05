@@ -1,4 +1,4 @@
-use nalgebra::{Rotation3};
+use nalgebra::Rotation3;
 
 use crate::model::joints::{Joint, JointEndpoint};
 use crate::model::{Bodies, Joints};
@@ -6,12 +6,7 @@ use crate::model::{Bodies, Joints};
 pub fn render_joints_pretty(joints: &Joints, bodies: &Bodies) -> String {
     let mut rendered = String::new();
 
-    render_joint_section(
-        &mut rendered,
-        "Primary joints",
-        joints.primary(),
-        bodies,
-    );
+    render_joint_section(&mut rendered, "Primary joints", joints.primary(), bodies);
     rendered.push('\n');
     render_joint_section(
         &mut rendered,
@@ -39,7 +34,9 @@ fn render_joint_section<'a>(
 
         rendered.push_str(&format!(
             "Joint {}  id={}  kind={:?}\n",
-            joint.name(), joint.id().0, joint.kind()
+            joint.name(),
+            joint.id().0,
+            joint.kind()
         ));
         render_endpoint(rendered, "i", &joint.i_endpoint(), bodies);
         render_endpoint(rendered, "j", &joint.j_endpoint(), bodies);
@@ -81,6 +78,9 @@ fn render_basis(rendered: &mut String, orientation: &Rotation3<f64>) {
     for (name, column) in names.into_iter().zip(orientation.matrix().column_iter()) {
         let axis = column.into_owned();
 
-        rendered.push_str(&format!("      {name} {}\n", super::format_point_row(&axis),));
+        rendered.push_str(&format!(
+            "      {name} {}\n",
+            super::format_point_row(&axis),
+        ));
     }
 }

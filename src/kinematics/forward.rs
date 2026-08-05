@@ -1,6 +1,7 @@
 use super::KinematicsError;
+use crate::kinematics::coordinates::JointCoordinates;
 use crate::kinematics::spherical;
-use crate::kinematics::state::{JointCoordinates, KinematicState};
+use crate::kinematics::state::KinematicState;
 use crate::model::joints::{Joint, JointKind};
 use crate::model::{BodyId, BodyPose, Joints};
 use std::collections::BTreeMap;

@@ -21,8 +21,10 @@ joints:
         point: P1
         orientation: { method: euler, euler_angles: [0, 90, 0] }
 motions:
-  joint_coordinates:
-    J1:
-      relative_orientation:
-        method: quaternion
-        quaternion: [0.70710678, 0.0, 0.70710678, 0.0]
+  Motion 1:
+    type: joint-coordinates
+    joint_topology: primary
+    joint_id: 1
+    relative_orientation:
+      method: quaternion
+      quaternion: [0.70710678, 0.0, 0.70710678, 0.0]

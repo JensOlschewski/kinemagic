@@ -1,10 +1,9 @@
 pub mod render;
 pub mod yaml;
 
+use ::std::io::{self, Write};
+use ::std::path::Path;
 use std::fs;
-use::std::io::{self, Write};
-use::std::path::Path;
-
 
 pub fn read_input(input: &Path) -> io::Result<String> {
     fs::read_to_string(input)

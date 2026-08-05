@@ -127,8 +127,6 @@ impl Body {
         self.pose.position
     }
 
-
-
     pub fn global_point(&self, point_name: &str) -> Option<Vector3<f64>> {
         self.points
             .get(point_name)

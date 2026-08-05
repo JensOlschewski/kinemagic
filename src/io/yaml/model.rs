@@ -32,12 +32,14 @@
 //!
 //!   secondary: {}
 //!
-//! motion:
-//!   joint_coordinates:
-//!     J1:
-//!       relative_orientation:
-//!         method: quaternion
-//!         quaternion: [0.70710678, 0.0, 0.70710678, 0.0]
+//! motions:
+//!   Motion1:
+//!     type: joint-coordinates
+//!     joint_topology: primary
+//!     joint_id: 1
+//!     relative_orientation:
+//!       method: quaternion
+//!       quaternion: [0.70710678, 0.0, 0.70710678, 0.0]
 //! ```
 //!
 //! Quaternion component order is `[w, x, y, z]`.
@@ -48,8 +50,9 @@ use serde::Deserialize;
 use super::bodies::YamlBodies;
 use super::hardpoints::YamlHardpoints;
 use super::joints::YamlJoints;
-use super::motions::YamlMotions;
-use crate::model::{BodySpec, Hardpoints, JointSpec, MotionSpec};
+use super::motion::YamlMotions;
+use crate::model::motion::MotionSpec;
+use crate::model::{BodySpec, Hardpoints, JointSpec};
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct YamlModel {
@@ -63,13 +66,14 @@ pub struct YamlModel {
 }
 
 impl YamlModel {
-    pub fn into_model_parts(self) -> Result<(Hardpoints, Vec<BodySpec>, Vec<JointSpec>, Vec<MotionSpec>), String> {
+    pub fn into_model_parts(
+        self,
+    ) -> Result<(Hardpoints, Vec<BodySpec>, Vec<JointSpec>, Vec<MotionSpec>), String> {
         let hardpoints = self.hardpoints.into();
         let bodies = self.bodies.try_into()?;
         let joints = self.joints.into();
-        let motion = self.motions.into();
+        let motions = self.motions.try_into()?;
 
-        Ok((hardpoints, bodies, joints))
+        Ok((hardpoints, bodies, joints, motions))
     }
 }
-
