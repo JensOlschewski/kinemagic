@@ -11,7 +11,7 @@ pub fn run_solve(args: SolveArgs) -> Result<(), Box<dyn Error>> {
 
     let yaml = read_input(&io.input)?;
     let input: YamlModel = read_yaml_str(&yaml)?;
-    let (hardpoints, body_specs, joint_specs, _motion) = input.into_model_parts()?;
+    let (hardpoints, body_specs, joint_specs, motions) = input.into_model_parts()?;
 
     let bodies = Bodies::build(&body_specs, &hardpoints)?;
     let joints = Joints::build(&joint_specs, &bodies)?;
@@ -21,6 +21,10 @@ pub fn run_solve(args: SolveArgs) -> Result<(), Box<dyn Error>> {
     let joints_from_model = model.joints();
 
     let mut state = KinematicState::from_reference(bodies_from_model, joints_from_model)?;
+
+    for motion in &motions {
+        state.apply_motion(motion)?;
+    }
 
     update_body_poses(&mut state, joints_from_model)?;
 

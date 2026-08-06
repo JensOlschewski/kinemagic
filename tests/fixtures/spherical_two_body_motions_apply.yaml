@@ -38,3 +38,19 @@ joints:
         body_id: 2
         point: P2
         orientation: { method: euler, euler_angles: [0, 0, 0] }
+motions:
+  Motion 1:
+    type: joint-coordinates
+    joint_topology: primary
+    joint_id: 1
+    relative_orientation:
+      method: quaternion
+      quaternion: [0.70710678, 0.0, 0.70710678, 0.0]
+
+  Motion 2:
+    type: joint-coordinates
+    joint_topology: primary
+    joint_id: 2
+    relative_orientation:
+      method: quaternion
+      quaternion: [0.70710678, 0.70710678, 0.0, 0.0]

@@ -19,7 +19,7 @@ const TOLERANCE: f64 = 1.0e-10;
 // Compares the calculated pose with the reference pose in the yaml
 // and checks if the joint markers are coincide after forward position calculation
 fn one_body_reproduces_reference_pose() {
-    let (model, mut state) = setup(include_str!("./fixtures/spherical_one_body_reference.yaml"));
+    let (model, mut state, _) = setup(include_str!("./fixtures/spherical_one_body_reference.yaml"));
     let joints = model.joints();
 
     let expected_pose = state
@@ -54,7 +54,7 @@ fn one_body_reproduces_reference_pose() {
 
 #[test]
 fn one_body_reproduces_reference_pose_with_non_aligned_markers() {
-    let (model, mut state) = setup(include_str!(
+    let (model, mut state, _) = setup(include_str!(
         "./fixtures/spherical_one_body_non_aligned_markers.yaml"
     ));
     let joints = model.joints();
@@ -97,7 +97,7 @@ fn one_body_reproduces_reference_pose_with_non_aligned_markers() {
 #[test]
 fn one_body_applies_changed_joint_coordinates() {
     // Create Basic Setup
-    let (model, mut state) = setup(include_str!("./fixtures/spherical_one_body_reference.yaml"));
+    let (model, mut state, _) = setup(include_str!("./fixtures/spherical_one_body_reference.yaml"));
     let joints = model.joints();
 
     // Extract joint J1
@@ -135,149 +135,52 @@ fn one_body_applies_changed_joint_coordinates() {
 }
 
 #[test]
-fn two_body_chain_applies_changed_joint_coordinates() {
-    let (model, mut state) = setup(include_str!("./fixtures/spherical_two_body_chain.yaml"));
-    let joints = model.joints();
-    let bodies = model.bodies();
+fn yaml_simultaneous_motions_update_two_body_chain() {
+    let (model, mut state, motions) = setup(include_str!(
+        "./fixtures/spherical_two_body_motions_apply.yaml"
+    ));
 
-    // Check if the setup is correct
-    assert_eq!(joints.primary().count(), 2, "two primary joints must exist");
-    assert_eq!(bodies.iter().skip(1).count(), 2, "two bodies must exist");
-
-    // Extract joints in loop
-    for joint in joints.primary() {
-        let new_orientation = match joint.id() {
-            JointId(1) => rotation_y_90(),
-            JointId(2) => rotation_x_90(),
-            _ => panic!("Unexpected joint id"),
-        };
-
-        // Assign quarterions to spherical coordinates
+    assert_eq!(motions.len(), 2, "two motions must exist");
+    for motion in &motions {
         state
-            .set_spherical_coordinates(
-                joint.key(),
-                SphericalCoordinates {
-                    relative_orientation: new_orientation,
-                },
-            )
-            .expect("joint coordinates must exist");
+            .apply_motion(motion)
+            .expect("motion must apply to state");
     }
 
-    // Update new body poses based on the changed joint coordinates.
-    update_body_poses(&mut state, joints).expect("forward position calculation must succeed");
-
-    // Iterate over bodies to check if the new poses are as expected
-    for body in bodies.iter() {
-        let body_pose = state
-            .get_body_pose(body.id())
-            .expect("body pose must exist");
-
-        let expected_position = match body.id() {
-            BodyId::GROUND => Vector3::new(0.0, 0.0, 0.0),
-            BodyId(1) => Vector3::new(-100.0, 0.0, 0.0),
-            BodyId(2) => Vector3::new(-200.0, 100.0, 0.0),
-            _ => panic!("Unexpected body id"),
-        };
-        let position_error = (body_pose.position - expected_position).norm();
-
-        assert!(
-            position_error < TOLERANCE,
-            "position error was {position_error}"
-        );
-
-        let expected_orientation = match body.id() {
-            BodyId::GROUND => UnitQuaternion::identity(),
-            BodyId(1) => rotation_y_90(),
-            BodyId(2) => rotation_y_90() * rotation_x_90(),
-            _ => panic!("unexpected body id"),
-        };
-
-        let orientation_error = body_pose.orientation.angle_to(&expected_orientation);
-
-        assert!(
-            orientation_error < TOLERANCE,
-            "orientation error for body {:?} was {orientation_error}",
-            body.id()
-        );
-    }
-
-    // Check i and j markers of the spherical joint are coincide
-    // after forward position calculation.
-    assert_spherical_joint_positions_coincident(joints, &state);
-}
-
-#[test]
-fn yaml_motion_updates_body_pose() {
-    let input: YamlModel = read_yaml_str(include_str!(
-        "./fixtures/spherical_one_body_joint_coordinates.yaml"
-    ))
-    .expect("YAML must parse");
-
-    let (hardpoints, body_specs, joint_specs, motions) = input
-        .into_model_parts()
-        .expect("model conversion must succeed");
-
-    let bodies = Bodies::build(&body_specs, &hardpoints).expect("body construction must succeed");
-    let joints = Joints::build(&joint_specs, &bodies).expect("joint construction must succeed");
-    let model = Model::new(bodies, joints);
-    let mut state = KinematicState::from_reference(model.bodies(), model.joints())
-        .expect("reference state must build");
-
-    let reference_pose = state
-        .get_body_pose(BodyId(1))
-        .expect("reference pose must exist")
-        .clone();
-
-    let key = JointKey {
-        topology: JointTopology::Primary,
-        id: JointId(1),
-    };
-
-    let motion = motions
-        .iter()
-        .find(|motion| motion.name() == "Motion 1")
-        .expect("motion must exist");
-
-    match motion.kind() {
-        MotionKind::JointCoordinates {
-            key: motion_key,
-            coordinates,
-        } => {
-            assert_eq!(*motion_key, key);
-
-            match coordinates {
-                JointCoordinates::Spherical(coordinates) => {
-                    let error = coordinates.relative_orientation.angle_to(&rotation_y_90());
-                    assert!(error < TOLERANCE, "orientation error was {error}");
-                }
-            }
-        }
-        MotionKind::BodyPose { .. } => panic!("expected joint-coordinate motion"),
-    }
-
-    state
-        .apply_motion(motion)
-        .expect("motion must apply to state");
     update_body_poses(&mut state, model.joints())
         .expect("forward position calculation must succeed");
 
-    let calculated_pose = state
-        .get_body_pose(BodyId(1))
-        .expect("calculated pose must exist");
-    let orientation_change = calculated_pose
-        .orientation
-        .angle_to(&reference_pose.orientation);
+    let expected_poses = [
+        (BodyId(1), Vector3::new(-100.0, 0.0, 0.0), rotation_y_90()),
+        (
+            BodyId(2),
+            Vector3::new(-200.0, 100.0, 0.0),
+            rotation_y_90() * rotation_x_90(),
+        ),
+    ];
 
-    assert!(
-        orientation_change > TOLERANCE,
-        "motion must change the body orientation"
-    );
+    for (body_id, expected_position, expected_orientation) in expected_poses {
+        let pose = state.get_body_pose(body_id).expect("body pose must exist");
+        let position_error = (pose.position - expected_position).norm();
+        assert!(
+            position_error < TOLERANCE,
+            "position error for body {body_id:?} was {position_error}"
+        );
+
+        let orientation_error = pose.orientation.angle_to(&expected_orientation);
+        assert!(
+            orientation_error < TOLERANCE,
+            "orientation error for body {body_id:?} was {orientation_error}"
+        );
+    }
+
     assert_spherical_joint_positions_coincident(model.joints(), &state);
 }
 
 #[test]
 fn motion_rejects_missing_joint_id() {
-    let (_model, mut state) = setup(include_str!("./fixtures/spherical_one_body_reference.yaml"));
+    let (_model, mut state, _) =
+        setup(include_str!("./fixtures/spherical_one_body_reference.yaml"));
     let missing_key = JointKey {
         topology: JointTopology::Primary,
         id: JointId(99),
@@ -302,10 +205,10 @@ fn motion_rejects_missing_joint_id() {
     }
 }
 
-fn setup(yaml: &str) -> (Model, KinematicState) {
+fn setup(yaml: &str) -> (Model, KinematicState, Vec<MotionSpec>) {
     let input: YamlModel = read_yaml_str(yaml).expect("YAML must parse");
 
-    let (hardpoints, body_specs, joint_specs, _motions) = input
+    let (hardpoints, body_specs, joint_specs, motions) = input
         .into_model_parts()
         .expect("model conversion must succeed");
 
@@ -315,7 +218,7 @@ fn setup(yaml: &str) -> (Model, KinematicState) {
     let state = KinematicState::from_reference(model.bodies(), model.joints())
         .expect("reference state must build");
 
-    (model, state)
+    (model, state, motions)
 }
 
 fn assert_spherical_joint_positions_coincident(joints: &Joints, state: &KinematicState) {
