@@ -65,6 +65,7 @@ impl Joint {
     }
 }
 
+#[derive(Default)]
 pub struct Joints {
     primary: BTreeMap<JointId, Joint>,
     secondary: BTreeMap<JointId, Joint>,

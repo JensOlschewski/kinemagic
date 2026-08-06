@@ -38,8 +38,8 @@ fn render_joint_section<'a>(
             joint.id().0,
             joint.kind()
         ));
-        render_endpoint(rendered, "i", &joint.i_endpoint(), bodies);
-        render_endpoint(rendered, "j", &joint.j_endpoint(), bodies);
+        render_endpoint(rendered, "i", joint.i_endpoint(), bodies);
+        render_endpoint(rendered, "j", joint.j_endpoint(), bodies);
     }
 }
 

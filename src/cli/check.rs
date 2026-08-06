@@ -27,7 +27,7 @@ pub fn run_check(args: CheckArgs) -> Result<(), Box<dyn Error>> {
     let joints_rendered = render_joints_pretty(model.joints(), model.bodies());
 
     // Rendering the output
-    let rendered = format!("{}/\n{}", &body_rendered, &joints_rendered);
+    let rendered = format!("{}/\n{}", body_rendered, joints_rendered);
     write_output(io.output.as_deref(), &rendered)?;
 
     Ok(())

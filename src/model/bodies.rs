@@ -87,7 +87,7 @@ impl Bodies {
     ) -> Result<Vector3<f64>, BodiesError> {
         let body = self
             .get_by_id(body_id)
-            .ok_or_else(|| BodiesError::MissingBodyId(body_id))?;
+            .ok_or(BodiesError::MissingBodyId(body_id))?;
 
         let point = body
             .global_point(point_name)
@@ -241,7 +241,7 @@ fn build_body_from_spec(spec: &BodySpec, hardpoints: &Hardpoints) -> Result<Body
     Ok(Body {
         name: spec.name.clone(),
         id: spec.id,
-        side: spec.side.clone(),
+        side: spec.side,
         pose: spec.pose.clone(),
         points,
     })
