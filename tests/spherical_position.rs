@@ -1,15 +1,15 @@
 use std::f64::consts::FRAC_PI_2;
 
-use mbs_solver::kinematics::spherical::SphericalCoordinates;
+use kinemagic::kinematics::spherical::SphericalCoordinates;
 use nalgebra::{UnitQuaternion, Vector3};
 
-use mbs_solver::io::yaml::{YamlModel, read_yaml_str};
-use mbs_solver::kinematics::KinematicsError;
-use mbs_solver::kinematics::coordinates::JointCoordinates;
-use mbs_solver::kinematics::forward::update_body_poses;
-use mbs_solver::kinematics::state::KinematicState;
-use mbs_solver::model::motion::{MotionKind, MotionSpec};
-use mbs_solver::model::{Bodies, BodyId, JointId, JointKey, JointTopology, Joints, Model};
+use kinemagic::io::yaml::{YamlModel, read_yaml_str};
+use kinemagic::kinematics::KinematicsError;
+use kinemagic::kinematics::coordinates::JointCoordinates;
+use kinemagic::kinematics::forward::update_body_poses;
+use kinemagic::kinematics::state::KinematicState;
+use kinemagic::model::motion::{MotionKind, MotionSpec};
+use kinemagic::model::{Bodies, BodyId, JointId, JointKey, JointTopology, Joints, Model};
 
 const TOLERANCE: f64 = 1.0e-10;
 

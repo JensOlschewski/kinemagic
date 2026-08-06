@@ -1,12 +1,13 @@
 [package]
-name = "mbs-solver"
+name = "kinemagic"
 version = "0.1.0"
 edition = "2024"
-description = "A simple CLI solver for suspension kinematics and elastokinematics."
+description = "A simple CLI for modeling and solving multibody mechanisms."
+
 authors = ["Jens Olschewski"]
 
 [[bin]]
-name = "mbs"
+name = "km"
 path = "src/main.rs"
 
 [dependencies]
