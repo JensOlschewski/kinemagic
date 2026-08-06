@@ -75,6 +75,7 @@ pub enum KinematicsError {
     MissingBody(BodyId),
     UnsupportedJoint(JointKind),
     MissingJointCoordinates(JointKey),
+    DuplicateJointMotion(JointKey),
     InvalidPrimaryTree,
 }
 
@@ -84,10 +85,17 @@ impl std::fmt::Display for KinematicsError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::MissingBody(id) => write!(f, "missing body {}", id.0),
+
             Self::UnsupportedJoint(kind) => write!(f, "unsupported joint type: {kind:?}"),
+
             Self::MissingJointCoordinates(key) => {
                 write!(f, "missing joint coordinates for joint: {key:?}")
             }
+
+            Self::DuplicateJointMotion(key) => {
+                write!(f, "duplicate joint motion for joint {key:?}")
+            }
+
             Self::InvalidPrimaryTree => write!(f, "invalid tree"),
         }
     }

@@ -22,9 +22,7 @@ pub fn run_solve(args: SolveArgs) -> Result<(), Box<dyn Error>> {
 
     let mut state = KinematicState::from_reference(bodies_from_model, joints_from_model)?;
 
-    for motion in &motions {
-        state.apply_motion(motion)?;
-    }
+    state.apply_motions(&motions)?;
 
     update_body_poses(&mut state, joints_from_model)?;
 

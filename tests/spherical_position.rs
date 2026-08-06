@@ -141,11 +141,10 @@ fn yaml_simultaneous_motions_update_two_body_chain() {
     ));
 
     assert_eq!(motions.len(), 2, "two motions must exist");
-    for motion in &motions {
-        state
-            .apply_motion(motion)
-            .expect("motion must apply to state");
-    }
+
+    state
+        .apply_motions(&motions)
+        .expect("motions must apply to state");
 
     update_body_poses(&mut state, model.joints())
         .expect("forward position calculation must succeed");
@@ -178,31 +177,44 @@ fn yaml_simultaneous_motions_update_two_body_chain() {
 }
 
 #[test]
-fn motion_rejects_missing_joint_id() {
+fn motions_reject_missing_joint() {
     let (_model, mut state, _) =
         setup(include_str!("./fixtures/spherical_one_body_reference.yaml"));
-    let missing_key = JointKey {
+
+    let key = JointKey {
         topology: JointTopology::Primary,
         id: JointId(99),
     };
-    let motion = MotionSpec::new(
-        "Missing joint".to_string(),
-        MotionKind::JointCoordinates {
-            key: missing_key,
-            coordinates: JointCoordinates::Spherical(SphericalCoordinates {
-                relative_orientation: UnitQuaternion::identity(),
-            }),
-        },
-    );
+
+    let motion = spherical_motion("Missing joint", key, UnitQuaternion::identity());
 
     let error = state
-        .apply_motion(&motion)
+        .apply_motions(&[motion])
         .expect_err("missing joint must be rejected");
 
-    match error {
-        KinematicsError::MissingJointCoordinates(key) => assert_eq!(key, missing_key),
-        other => panic!("unexpected error: {other}"),
-    }
+    assert!(matches!(error, KinematicsError::MissingJointCoordinates(found) if found == key));
+}
+
+#[test]
+fn motions_reject_duplicate_joint() {
+    let (_model, mut state, _) =
+        setup(include_str!("./fixtures/spherical_one_body_reference.yaml"));
+
+    let key = JointKey {
+        topology: JointTopology::Primary,
+        id: JointId(1),
+    };
+
+    let motions = [
+        spherical_motion("First", key, UnitQuaternion::identity()),
+        spherical_motion("Second", key, rotation_y_90()),
+    ];
+
+    let error = state
+        .apply_motions(&motions)
+        .expect_err("duplicate joint motions must be rejected");
+
+    assert!(matches!(error, KinematicsError::DuplicateJointMotion(found) if found == key));
 }
 
 fn setup(yaml: &str) -> (Model, KinematicState, Vec<MotionSpec>) {
@@ -219,6 +231,18 @@ fn setup(yaml: &str) -> (Model, KinematicState, Vec<MotionSpec>) {
         .expect("reference state must build");
 
     (model, state, motions)
+}
+
+fn spherical_motion(name: &str, key: JointKey, orientation: UnitQuaternion<f64>) -> MotionSpec {
+    MotionSpec::new(
+        name.to_string(),
+        MotionKind::JointCoordinates {
+            key,
+            coordinates: JointCoordinates::Spherical(SphericalCoordinates {
+                relative_orientation: orientation,
+            }),
+        },
+    )
 }
 
 fn assert_spherical_joint_positions_coincident(joints: &Joints, state: &KinematicState) {

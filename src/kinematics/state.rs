@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::{KinematicsError, coordinates::JointCoordinates, spherical::SphericalCoordinates};
 use crate::model::motion::{MotionKind, MotionSpec};
@@ -47,7 +47,7 @@ impl KinematicState {
         }
     }
 
-    pub fn apply_motion(&mut self, motion: &MotionSpec) -> Result<(), KinematicsError> {
+    fn apply_motion(&mut self, motion: &MotionSpec) -> Result<(), KinematicsError> {
         match motion.kind() {
             MotionKind::JointCoordinates { key, coordinates } => {
                 let current = self
@@ -63,6 +63,27 @@ impl KinematicState {
                 }
             }
         }
+    }
+
+    pub fn apply_motions(&mut self, motions: &[MotionSpec]) -> Result<(), KinematicsError> {
+        let mut seen_keys = BTreeSet::new();
+
+        for motion in motions {
+            let MotionKind::JointCoordinates { key, .. } = motion.kind();
+            if !seen_keys.insert(*key) {
+                return Err(KinematicsError::DuplicateJointMotion(*key));
+            }
+
+            if !self.primary_coordinates.contains_key(key) {
+                return Err(KinematicsError::MissingJointCoordinates(*key));
+            }
+        }
+
+        for motion in motions {
+            self.apply_motion(motion)?;
+        }
+
+        Ok(())
     }
 
     pub fn from_reference(bodies: &Bodies, joints: &Joints) -> Result<Self, KinematicsError> {
