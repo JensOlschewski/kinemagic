@@ -1,5 +1,5 @@
 use crate::kinematics::coordinates::JointCoordinates;
-use crate::model::{BodyId, BodyPose, JointKey};
+use crate::model::JointKey;
 
 pub struct MotionSpec {
     name: String,
@@ -10,10 +10,6 @@ pub enum MotionKind {
     JointCoordinates {
         key: JointKey,
         coordinates: JointCoordinates,
-    },
-    BodyPose {
-        body_id: BodyId,
-        pose: BodyPose,
     },
 }
 

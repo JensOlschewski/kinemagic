@@ -62,7 +62,6 @@ impl KinematicState {
                     }
                 }
             }
-            MotionKind::BodyPose { .. } => Err(KinematicsError::UnsupportedMotion("body-pose")),
         }
     }
 

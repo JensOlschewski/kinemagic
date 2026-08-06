@@ -74,7 +74,6 @@ pub fn shift_matrix(r_ji: &Vector3<f64>) -> SMatrix<f64, 6, 6> {
 pub enum KinematicsError {
     MissingBody(BodyId),
     UnsupportedJoint(JointKind),
-    UnsupportedMotion(&'static str),
     MissingJointCoordinates(JointKey),
     InvalidPrimaryTree,
 }
@@ -86,7 +85,6 @@ impl std::fmt::Display for KinematicsError {
         match self {
             Self::MissingBody(id) => write!(f, "missing body {}", id.0),
             Self::UnsupportedJoint(kind) => write!(f, "unsupported joint type: {kind:?}"),
-            Self::UnsupportedMotion(kind) => write!(f, "unsupported motion type: {kind}"),
             Self::MissingJointCoordinates(key) => {
                 write!(f, "missing joint coordinates for joint: {key:?}")
             }

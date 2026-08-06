@@ -1,13 +1,13 @@
 use std::collections::BTreeMap;
 
-use nalgebra::{Quaternion, UnitQuaternion, Vector3};
+use nalgebra::{Quaternion, UnitQuaternion};
 use serde::Deserialize;
 
 use super::joints::YamlJointTopology;
 use crate::kinematics::coordinates::JointCoordinates;
 use crate::kinematics::spherical::SphericalCoordinates;
 use crate::model::motion::{MotionKind, MotionSpec};
-use crate::model::{BodyId, BodyPose, JointId, JointKey};
+use crate::model::{JointId, JointKey};
 
 #[derive(Debug, Clone, PartialEq, Default, Deserialize)]
 pub struct YamlMotions(pub BTreeMap<String, YamlMotion>);
@@ -19,11 +19,6 @@ pub enum YamlMotion {
         joint_topology: YamlJointTopology,
         joint_id: u16,
         relative_orientation: YamlRelativeJointOrientation,
-    },
-    BodyPose {
-        body_id: u16,
-        position: [f64; 3],
-        orientation: [f64; 4],
     },
 }
 
@@ -53,23 +48,6 @@ impl YamlMotion {
                     coordinates: JointCoordinates::Spherical(SphericalCoordinates {
                         relative_orientation,
                     }),
-                }
-            }
-            Self::BodyPose {
-                body_id,
-                position,
-                orientation,
-            } => {
-                if position.iter().any(|value| !value.is_finite()) {
-                    return Err(format!("non-finite body position for motion '{name}'"));
-                }
-
-                let orientation = unit_quaternion(orientation)
-                    .ok_or_else(|| format!("invalid body orientation for motion '{name}'"))?;
-
-                MotionKind::BodyPose {
-                    body_id: BodyId(body_id),
-                    pose: BodyPose::new(Vector3::from(position), orientation),
                 }
             }
         };
