@@ -1,12 +1,12 @@
+use std::{fs, io, path::PathBuf};
+
+use clap::{Args, Parser, Subcommand};
+
 pub mod check;
 pub mod solve;
 
-use std::path::PathBuf;
-
-use clap::{Args, Parser, Subcommand, ValueEnum};
-
 #[derive(Parser)]
-#[command(about, version)] //comes from Cargo.toml
+#[command(version, about, long_about = None)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
@@ -14,51 +14,84 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Check the model for errors
+    /// Check the model
     Check(CheckArgs),
-
-    /// Solve the model and output the results
+    /// Solve the model
     Solve(SolveArgs),
 }
 
 #[derive(Args)]
-pub struct IOArgs {
-    // required input file path
-    #[arg(value_name = "INPUT", help = "Input file path")]
-    pub input: PathBuf,
-    // optional output file path, defaults to stdout
-    #[arg(
-        long,
-        short,
-        value_name = "OUTPUT",
-        help = "Output file path, defaults to stdout"
-    )]
-    pub output: Option<PathBuf>,
-}
-
-#[derive(Args)]
 pub struct CheckArgs {
-    #[command(flatten)]
-    pub io: IOArgs,
-    #[arg(short, long, value_enum, default_value_t = InputFormat::Yaml)]
-    pub input_format: InputFormat,
+    input: PathBuf,
 }
 
 #[derive(Args)]
 pub struct SolveArgs {
-    #[command(flatten)]
-    pub io: IOArgs,
-    #[arg(short, long, value_enum, default_value = "pretty")]
-    pub format: OutputFormat,
+    input: PathBuf,
 }
 
-#[derive(Debug, Clone, ValueEnum)]
-pub enum InputFormat {
-    Yaml,
+fn read_input(input_path: &PathBuf) -> io::Result<String> {
+    fs::read_to_string(input_path)
 }
 
-#[derive(Clone, Debug, ValueEnum)]
-pub enum OutputFormat {
-    Hdf5,
-    Pretty,
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    #[test]
+    fn parses_check_command() {
+        let cli = Cli::try_parse_from(["km", "check", "model.yaml"]).unwrap();
+
+        assert!(matches!(cli.command, Commands::Check(_)));
+    }
+
+    #[test]
+    fn parses_solve_command() {
+        let cli = Cli::try_parse_from(["km", "solve", "model.yaml"]).unwrap();
+
+        assert!(matches!(cli.command, Commands::Solve(_)));
+    }
+
+    #[test]
+    fn rejects_missing_subcommand() {
+        assert!(Cli::try_parse_from(["km"]).is_err());
+    }
+
+    #[test]
+    fn rejects_missing_input() {
+        assert!(Cli::try_parse_from(["km", "check"]).is_err());
+    }
+
+    #[test]
+    fn rejects_unknown_command() {
+        assert!(Cli::try_parse_from(["km", "unknown", "model.yaml"]).is_err());
+    }
+
+    #[test]
+    fn check_fails_for_missing_file() {
+        let result = check::run(CheckArgs {
+            input: "missing.yaml".into(),
+        });
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn solve_fails_for_missing_file() {
+        let result = solve::run(SolveArgs {
+            input: "missing.yaml".into(),
+        });
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn check_accepts_readable_file() {
+        let result = check::run(CheckArgs {
+            input: "tests/fixtures/spherical_one_body_reference.yaml".into(),
+        });
+
+        assert!(result.is_ok());
+    }
 }

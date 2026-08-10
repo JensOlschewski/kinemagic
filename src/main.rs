@@ -1,9 +1,12 @@
 use clap::Parser;
-use kinemagic::cli::{Cli, Commands};
+use cli::{Cli, Commands};
+use std::error::Error;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+pub mod cli;
+
+fn main() -> Result<(), Box<dyn Error>> {
     match Cli::parse().command {
-        Commands::Check(args) => kinemagic::cli::check::run_check(args),
-        Commands::Solve(args) => kinemagic::cli::solve::run_solve(args),
+        Commands::Check(args) => crate::cli::check::run(args),
+        Commands::Solve(args) => crate::cli::solve::run(args),
     }
 }
