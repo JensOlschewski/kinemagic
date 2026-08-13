@@ -3,6 +3,7 @@ use cli::{Cli, Commands};
 use std::error::Error;
 
 pub mod cli;
+pub mod model;
 
 fn main() -> Result<(), Box<dyn Error>> {
     match Cli::parse().command {
