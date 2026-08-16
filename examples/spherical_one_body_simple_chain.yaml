@@ -1,0 +1,49 @@
+# ------------------------------------------------------------------------------
+# Fixed hardpoints
+#
+# Reference these names from body points and joint markers.
+# Coordinates use world coordinates and are not mirrored.
+# ------------------------------------------------------------------------------
+hardpoints:
+  P1: [0.0, 0.0, 0.0]
+
+# ------------------------------------------------------------------------------
+# Bodies
+#
+# `body_id: 0` is reserved for ground. Ground is implicit when omitted.
+# `position` is body world position. `orientation` uses Euler angles here.
+# `points_on_body` lists hardpoints belonging to each body.
+# ------------------------------------------------------------------------------
+bodies:
+  B1:
+    body_id: 1
+    side: single
+    position: [0.0, 0.0, -100.0]
+    orientation:
+      method: euler
+      euler_angles: [0, 0, 0]
+    points_on_body: [P1]
+
+# ------------------------------------------------------------------------------
+# Joints
+#
+# `i` is parent-side marker; `j` is child-side marker.
+# Each marker references its owning body and a hardpoint by name.
+# Marker orientations use their owning body frame.
+# ------------------------------------------------------------------------------
+joints:
+  J1:
+    joint_id: 1
+    kind: spherical
+    i:
+      body_id: 0
+      position: P1
+      orientation:
+        method: euler
+        euler_angles: [0, 0, 0]
+    j:
+      body_id: 1
+      position: P1
+      orientation:
+        method: euler
+        euler_angles: [0, 0, 0]
