@@ -1,9 +1,9 @@
+mod cli;
+
 use clap::Parser;
-use cli::{Cli, Commands};
 use std::error::Error;
 
-pub mod cli;
-pub mod model;
+use cli::{Cli, Commands};
 
 fn main() -> Result<(), Box<dyn Error>> {
     match Cli::parse().command {

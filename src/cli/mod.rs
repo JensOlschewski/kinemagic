@@ -89,7 +89,7 @@ mod tests {
     #[test]
     fn check_accepts_readable_file() {
         let result = check::run(CheckArgs {
-            input: "tests/fixtures/spherical_one_body_reference.yaml".into(),
+            input: "tests/fixtures/spherical_one_body_parse.yaml".into(),
         });
 
         assert!(result.is_ok());

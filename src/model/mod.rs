@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use nalgebra::{Rotation3, UnitQuaternion, Vector3};
+use nalgebra::{UnitQuaternion, Vector3};
 use thiserror::Error;
 
 pub struct Model {
@@ -11,17 +11,17 @@ pub struct Model {
 impl Model {
     pub fn new(bodies: Bodies, joints: Joints) -> Result<Self, ModelBuildError> {
         for joint in joints.iter() {
-            if !bodies.contains(joint.i_body) {
+            if !bodies.contains(joint.i_marker.body_id) {
                 return Err(ModelBuildError::InvalidJointReference {
                     joint_id: joint.id,
-                    body_id: joint.i_body,
+                    body_id: joint.i_marker.body_id,
                 });
             }
 
-            if !bodies.contains(joint.j_body) {
+            if !bodies.contains(joint.j_marker.body_id) {
                 return Err(ModelBuildError::InvalidJointReference {
                     joint_id: joint.id,
-                    body_id: joint.j_body,
+                    body_id: joint.j_marker.body_id,
                 });
             }
         }
@@ -38,11 +38,11 @@ impl Model {
             let before = reachable.len();
 
             for joint in joints.iter() {
-                if reachable.contains(&joint.i_body) {
-                    reachable.insert(joint.j_body);
+                if reachable.contains(&joint.i_marker.body_id) {
+                    reachable.insert(joint.j_marker.body_id);
                 }
-                if reachable.contains(&joint.j_body) {
-                    reachable.insert(joint.i_body);
+                if reachable.contains(&joint.j_marker.body_id) {
+                    reachable.insert(joint.i_marker.body_id);
                 }
             }
 
@@ -172,8 +172,6 @@ pub struct Joint {
     kind: JointKind,
     i_marker: Marker,
     j_marker: Marker,
-    i_body: BodyId,
-    j_body: BodyId,
 }
 
 impl Joint {
@@ -183,8 +181,6 @@ impl Joint {
         kind: JointKind,
         i_marker: Marker,
         j_marker: Marker,
-        i_body: BodyId,
-        j_body: BodyId,
     ) -> Self {
         Self {
             id,
@@ -192,8 +188,6 @@ impl Joint {
             kind,
             i_marker,
             j_marker,
-            i_body,
-            j_body,
         }
     }
 
@@ -216,30 +210,25 @@ impl Joint {
     pub fn j_marker(&self) -> &Marker {
         &self.j_marker
     }
-
-    pub fn i_body(&self) -> BodyId {
-        self.i_body
-    }
-
-    pub fn j_body(&self) -> BodyId {
-        self.j_body
-    }
 }
 
 pub struct Marker {
     name: String,
+    body_id: BodyId,
     position: Vector3<f64>,
-    orientation: Rotation3<f64>,
+    orientation: UnitQuaternion<f64>,
 }
 
 impl Marker {
     pub fn new(
         name: impl Into<String>,
+        body_id: BodyId,
         position: Vector3<f64>,
-        orientation: Rotation3<f64>,
+        orientation: UnitQuaternion<f64>,
     ) -> Self {
         Self {
             name: name.into(),
+            body_id,
             position,
             orientation,
         }
@@ -249,11 +238,15 @@ impl Marker {
         &self.name
     }
 
+    pub fn body_id(&self) -> BodyId {
+        self.body_id
+    }
+
     pub fn position(&self) -> Vector3<f64> {
         self.position
     }
 
-    pub fn orientation(&self) -> Rotation3<f64> {
+    pub fn orientation(&self) -> UnitQuaternion<f64> {
         self.orientation
     }
 }
@@ -353,35 +346,45 @@ mod tests {
     #[test]
     fn build_marker() {
         let position = Vector3::new(1.0, 2.0, 3.0);
-        let orientation = Rotation3::identity();
-        let marker = Marker::new("marker", position, orientation);
+        let orientation = UnitQuaternion::identity();
+        let body_id = BodyId::new(0);
+        let marker = Marker::new("marker", body_id, position, orientation);
 
         assert_eq!(marker.name(), "marker");
+        assert_eq!(marker.body_id(), body_id);
         assert_eq!(marker.position(), position);
         assert_eq!(marker.orientation(), orientation);
     }
 
     #[test]
     fn build_joint() {
-        let i_marker = Marker::new("i-marker", Vector3::zeros(), Rotation3::identity());
-        let j_marker = Marker::new("j-marker", Vector3::zeros(), Rotation3::identity());
         let i_body = BodyId::new(1);
         let j_body = BodyId::new(2);
+        let i_marker = Marker::new(
+            "i-marker",
+            i_body,
+            Vector3::zeros(),
+            UnitQuaternion::identity(),
+        );
+        let j_marker = Marker::new(
+            "j-marker",
+            j_body,
+            Vector3::zeros(),
+            UnitQuaternion::identity(),
+        );
         let joint = Joint::new(
             JointId::new(1),
             "joint",
             JointKind::Spherical,
             i_marker,
             j_marker,
-            i_body,
-            j_body,
         );
 
         assert_eq!(joint.id(), JointId::new(1));
         assert_eq!(joint.name(), "joint");
         assert_eq!(joint.kind(), JointKind::Spherical);
-        assert_eq!(joint.i_body(), i_body);
-        assert_eq!(joint.j_body(), j_body);
+        assert_eq!(joint.i_marker().body_id(), i_body);
+        assert_eq!(joint.j_marker().body_id(), j_body);
         assert_eq!(joint.i_marker().name(), "i-marker");
         assert_eq!(joint.j_marker().name(), "j-marker");
     }
@@ -621,8 +624,8 @@ mod tests {
         )
     }
 
-    fn marker(name: &str) -> Marker {
-        Marker::new(name, Vector3::zeros(), Rotation3::identity())
+    fn marker(name: &str, body_id: BodyId) -> Marker {
+        Marker::new(name, body_id, Vector3::zeros(), UnitQuaternion::identity())
     }
 
     fn joint(id: JointId, name: &str, i_body: BodyId, j_body: BodyId) -> Joint {
@@ -630,10 +633,8 @@ mod tests {
             id,
             name,
             JointKind::Spherical,
-            marker("i"),
-            marker("j"),
-            i_body,
-            j_body,
+            marker("i", i_body),
+            marker("j", j_body),
         )
     }
 }
