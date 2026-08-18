@@ -1,19 +1,31 @@
-# ------------------------------------------------------------------------------
-# Fixed hardpoints
+# Kinemagic M1 example: one moving body connected to ground by a spherical joint.
 #
-# Reference these names from body points and joint markers.
-# Coordinates use world coordinates and are not mirrored.
-# ------------------------------------------------------------------------------
+# Run:
+#   km check examples/spherical_one_body_simple_chain.yaml
+#   km solve examples/spherical_one_body_simple_chain.yaml
+#
+# This example shows only features supported by M1.
+# Positions describe the reference configuration.
+# Euler orientations use right-handed Z-X-Z angles in degrees.
+
+
+# ------------------------
+# --- REFERENCE POINTS ---
+# ------------------------
+
+# Hardpoints use world-frame [x, y, z] coordinates.
+# Bodies and joint markers reference them by name.
 hardpoints:
   P1: [0.0, 0.0, 0.0]
 
-# ------------------------------------------------------------------------------
-# Bodies
-#
-# `body_id: 0` is reserved for ground. Ground is implicit when omitted.
-# `position` is body world position. `orientation` uses Euler angles here.
-# `points_on_body` lists hardpoints belonging to each body.
-# ------------------------------------------------------------------------------
+# --------------
+# --- BODIES ---
+# --------------
+
+# Body 0 is implicit ground with identity world pose.
+# Each listed body defines its reference pose in the world frame.
+# points_on_body names reference hardpoints attached to that body.
+# Loading converts those points into body-local coordinates.
 bodies:
   B1:
     body_id: 1
@@ -24,13 +36,14 @@ bodies:
       euler_angles: [0, 0, 0]
     points_on_body: [P1]
 
-# ------------------------------------------------------------------------------
-# Joints
-#
-# `i` is parent-side marker; `j` is child-side marker.
-# Each marker references its owning body and a hardpoint by name.
-# Marker orientations use their owning body frame.
-# ------------------------------------------------------------------------------
+# --------------
+# --- JOINTS ---
+# --------------
+
+# i is the parent marker; j is the child marker.
+# Marker positions and orientations are specified in the world frame.
+# Loading converts both into the owning body frame.
+# Marker position accepts a hardpoint name or inline [x, y, z] coordinates.
 joints:
   J1:
     joint_id: 1

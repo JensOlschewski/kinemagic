@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use nalgebra::{Rotation3, UnitQuaternion, Vector3};
+use nalgebra::{UnitQuaternion, Vector3};
 use thiserror::Error;
 
 pub struct Model {
@@ -216,7 +216,7 @@ pub struct Marker {
     name: String,
     body_id: BodyId,
     position: Vector3<f64>,
-    orientation: Rotation3<f64>,
+    orientation: UnitQuaternion<f64>,
 }
 
 impl Marker {
@@ -224,7 +224,7 @@ impl Marker {
         name: impl Into<String>,
         body_id: BodyId,
         position: Vector3<f64>,
-        orientation: Rotation3<f64>,
+        orientation: UnitQuaternion<f64>,
     ) -> Self {
         Self {
             name: name.into(),
@@ -246,7 +246,7 @@ impl Marker {
         self.position
     }
 
-    pub fn orientation(&self) -> Rotation3<f64> {
+    pub fn orientation(&self) -> UnitQuaternion<f64> {
         self.orientation
     }
 }
@@ -346,7 +346,7 @@ mod tests {
     #[test]
     fn build_marker() {
         let position = Vector3::new(1.0, 2.0, 3.0);
-        let orientation = Rotation3::identity();
+        let orientation = UnitQuaternion::identity();
         let body_id = BodyId::new(0);
         let marker = Marker::new("marker", body_id, position, orientation);
 
@@ -360,8 +360,18 @@ mod tests {
     fn build_joint() {
         let i_body = BodyId::new(1);
         let j_body = BodyId::new(2);
-        let i_marker = Marker::new("i-marker", i_body, Vector3::zeros(), Rotation3::identity());
-        let j_marker = Marker::new("j-marker", j_body, Vector3::zeros(), Rotation3::identity());
+        let i_marker = Marker::new(
+            "i-marker",
+            i_body,
+            Vector3::zeros(),
+            UnitQuaternion::identity(),
+        );
+        let j_marker = Marker::new(
+            "j-marker",
+            j_body,
+            Vector3::zeros(),
+            UnitQuaternion::identity(),
+        );
         let joint = Joint::new(
             JointId::new(1),
             "joint",
@@ -615,7 +625,7 @@ mod tests {
     }
 
     fn marker(name: &str, body_id: BodyId) -> Marker {
-        Marker::new(name, body_id, Vector3::zeros(), Rotation3::identity())
+        Marker::new(name, body_id, Vector3::zeros(), UnitQuaternion::identity())
     }
 
     fn joint(id: JointId, name: &str, i_body: BodyId, j_body: BodyId) -> Joint {
