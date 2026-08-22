@@ -279,7 +279,7 @@ pub enum JointKind {
     Spherical,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub struct BodyId(u32);
 
 impl BodyId {
@@ -291,7 +291,7 @@ impl BodyId {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub struct JointId(u32);
 
 impl JointId {
