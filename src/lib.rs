@@ -1,3 +1,4 @@
 pub mod io;
-pub mod kinematics;
 pub mod model;
+pub mod problem;
+pub mod solve;
