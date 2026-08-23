@@ -4,25 +4,29 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 use crate::model::{
-    Bodies, Body, BodyId, Joint, JointId, JointKind, Joints, Marker, Model, ModelBuildError, Point,
+    Bodies, Body, BodyId, Input, Joint, JointId, JointKind, Joints, Marker, Model, ModelBuildError,
+    Motion, MotionKind, Point,
 };
 use nalgebra::{UnitQuaternion, Vector3};
 
 #[derive(Debug, Deserialize)]
-pub struct YamlModel {
+pub struct YamlInput {
     pub hardpoints: BTreeMap<String, [f64; 3]>,
     #[serde(default)]
     pub bodies: BTreeMap<String, YamlBody>,
     #[serde(default)]
     pub joints: BTreeMap<String, YamlJoint>,
+    #[serde(default)]
+    pub motions: BTreeMap<String, YamlMotion>,
 }
 
-impl YamlModel {
-    pub fn into_model(self) -> Result<Model, YamlError> {
-        let YamlModel {
+impl YamlInput {
+    pub fn into_input(self) -> Result<Input, YamlError> {
+        let YamlInput {
             hardpoints,
             bodies,
             joints,
+            motions,
         } = self;
 
         let body_values = bodies
@@ -56,7 +60,13 @@ impl YamlModel {
             .map(|(name, joint)| joint.into_joint(&name, &bodies, &hardpoints))
             .collect::<Result<Vec<Joint>, YamlError>>()?;
 
-        Model::new(bodies, Joints::new(joint_values)?).map_err(Into::into)
+        let model = Model::new(bodies, Joints::new(joint_values)?)?;
+        let motions = motions
+            .into_iter()
+            .map(|(name, motion)| motion.into_motion(name))
+            .collect();
+
+        Ok(Input::new(model, motions))
     }
 }
 
@@ -160,6 +170,31 @@ impl YamlJoint {
             i_marker,
             j_marker,
         ))
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum YamlMotion {
+    JointCoordinates {
+        joint_id: u32,
+        relative_orientation: YamlOrientation,
+    },
+}
+
+impl YamlMotion {
+    fn into_motion(self, name: String) -> Motion {
+        match self {
+            Self::JointCoordinates {
+                joint_id,
+                relative_orientation,
+            } => Motion::new(
+                name,
+                MotionKind::JointCoordinates,
+                JointId::new(joint_id),
+                relative_orientation.into_unit_quaternion(),
+            ),
+        }
     }
 }
 
@@ -282,11 +317,11 @@ pub enum YamlError {
     Model(#[from] ModelBuildError),
 }
 
-pub fn parse_yaml_str(input: &str) -> Result<YamlModel, YamlError> {
+pub fn parse_yaml_str(input: &str) -> Result<YamlInput, YamlError> {
     serde_yaml_ng::from_str(input).map_err(YamlError::Parse)
 }
 
-pub fn parse_yaml_file(path: impl AsRef<Path>) -> Result<YamlModel, YamlError> {
+pub fn parse_yaml_file(path: impl AsRef<Path>) -> Result<YamlInput, YamlError> {
     let path = path.as_ref();
 
     let input = std::fs::read_to_string(path).map_err(|source| YamlError::Read {
@@ -305,7 +340,8 @@ mod tests {
     fn converts_spherical_one_body_parse_into_model() -> Result<(), YamlError> {
         let input = include_str!("../../../tests/fixtures/spherical_one_body_parse.yaml");
 
-        let model = parse_yaml_str(input)?.into_model()?;
+        let input = parse_yaml_str(input)?.into_input()?;
+        let model = input.model();
 
         assert_eq!(model.bodies().iter().count(), 2);
         assert_eq!(model.bodies().get(BodyId::GROUND).unwrap().name(), "ground");
@@ -333,7 +369,8 @@ mod tests {
     fn converts_spherical_two_body_parse_into_model() -> Result<(), YamlError> {
         let input = include_str!("../../../tests/fixtures/spherical_two_body_parse.yaml");
 
-        let model = parse_yaml_str(input)?.into_model()?;
+        let input = parse_yaml_str(input)?.into_input()?;
+        let model = input.model();
 
         assert_eq!(model.bodies().iter().count(), 3);
         assert_eq!(model.joints().iter().count(), 2);
@@ -369,13 +406,54 @@ mod tests {
     }
 
     #[test]
+    fn converts_missing_motions_into_empty_input() -> Result<(), YamlError> {
+        let input = include_str!("../../../tests/fixtures/spherical_one_body_parse.yaml");
+
+        let input = parse_yaml_str(input)?.into_input()?;
+
+        assert!(input.motions().is_empty());
+
+        Ok(())
+    }
+
+    #[test]
+    fn converts_joint_coordinate_motion_into_input() -> Result<(), YamlError> {
+        let yaml = format!(
+            "{}\nmotions:\n  RotateJ1:\n    kind: joint-coordinates\n    joint_id: 1\n    relative_orientation:\n      method: euler\n      euler_angles: [0, 90, 0]\n",
+            include_str!("../../../tests/fixtures/spherical_one_body_parse.yaml")
+        );
+
+        let input = parse_yaml_str(&yaml)?.into_input()?;
+        let motion = &input.motions()[0];
+        let expected =
+            UnitQuaternion::from_axis_angle(&Vector3::x_axis(), std::f64::consts::FRAC_PI_2);
+
+        assert_eq!(motion.name(), "RotateJ1");
+        assert_eq!(motion.joint_id(), JointId::new(1));
+        assert!(motion.relative_orientation().angle_to(&expected) < 1.0e-12);
+
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_unknown_motion_kind() {
+        let yaml = format!(
+            "{}\nmotions:\n  RotateJ1:\n    kind: unsupported\n    joint_id: 1\n    relative_orientation:\n      method: euler\n      euler_angles: [0, 90, 0]\n",
+            include_str!("../../../tests/fixtures/spherical_one_body_parse.yaml")
+        );
+
+        assert!(matches!(parse_yaml_str(&yaml), Err(YamlError::Parse(_))));
+    }
+
+    #[test]
     fn converts_rotated_body_geometry_to_local_frame() -> Result<(), YamlError> {
         let input = include_str!("../../../tests/fixtures/spherical_one_body_parse.yaml")
             .replace("P1: [0.0, 0.0, 0.0]", "P1: [1.0, 0.0, 0.0]")
             .replace("position: [0.0, 0.0, -100.0]", "position: [0.0, 0.0, 0.0]")
             .replacen("euler_angles: [0, 0, 0]", "euler_angles: [90, 0, 0]", 1);
 
-        let model = parse_yaml_str(&input)?.into_model()?;
+        let input = parse_yaml_str(&input)?.into_input()?;
+        let model = input.model();
         let body = model.bodies().get(BodyId::new(1)).unwrap();
         let joint = model.joints().iter().next().unwrap();
         let expected_world_point = Vector3::new(1.0, 0.0, 0.0);
@@ -406,7 +484,7 @@ mod tests {
             1,
         );
 
-        let result = parse_yaml_str(&input)?.into_model();
+        let result = parse_yaml_str(&input)?.into_input();
 
         assert!(matches!(
             result,
@@ -422,7 +500,7 @@ mod tests {
         let input = include_str!("../../../tests/fixtures/spherical_one_body_parse.yaml")
             .replace("points_on_body: [P1]", "points_on_body: [missing]");
 
-        let result = parse_yaml_str(&input)?.into_model();
+        let result = parse_yaml_str(&input)?.into_input();
 
         assert!(matches!(
             result,
@@ -441,7 +519,7 @@ mod tests {
             1,
         );
 
-        let result = parse_yaml_str(&input)?.into_model();
+        let result = parse_yaml_str(&input)?.into_input();
 
         assert!(matches!(
             result,
@@ -459,7 +537,7 @@ mod tests {
             1,
         );
 
-        let result = parse_yaml_str(&input)?.into_model();
+        let result = parse_yaml_str(&input)?.into_input();
 
         assert!(matches!(
             result,
@@ -491,7 +569,8 @@ mod tests {
             1,
         );
 
-        let model = parse_yaml_str(&input)?.into_model()?;
+        let input = parse_yaml_str(&input)?.into_input()?;
+        let model = input.model();
         let joint = model.joints().iter().next().unwrap();
 
         assert_eq!(joint.i_marker().position(), Vector3::new(1.0, 2.0, 3.0));

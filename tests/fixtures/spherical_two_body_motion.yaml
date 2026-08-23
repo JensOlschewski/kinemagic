@@ -1,0 +1,64 @@
+hardpoints:
+  P1: [0.0, 0.0, 0.0]
+  P2: [0.0, 0.0, -200.0]
+bodies:
+  B1:
+    body_id: 1
+    side: single
+    position: [0.0, 0.0, -100.0]
+    orientation:
+      method: euler
+      euler_angles: [0, 0, 0]
+    points_on_body: [P1, P2]
+  B2:
+    body_id: 2
+    side: single
+    position: [0.0, 0.0, -300.0]
+    orientation:
+      method: euler
+      euler_angles: [0, 0, 0]
+    points_on_body: [P2]
+joints:
+  J1:
+    joint_id: 1
+    kind: spherical
+    i:
+      body_id: 0
+      position: P1
+      orientation:
+        method: euler
+        euler_angles: [0, 0, 0]
+    j:
+      body_id: 1
+      position: P1
+      orientation:
+        method: euler
+        euler_angles: [0, 0, 0]
+  J2:
+    joint_id: 2
+    kind: spherical
+    i:
+      body_id: 1
+      position: P2
+      orientation:
+        method: euler
+        euler_angles: [0, 0, 0]
+    j:
+      body_id: 2
+      position: P2
+      orientation:
+        method: euler
+        euler_angles: [0, 0, 0]
+motions:
+  RotateJ1:
+    kind: joint-coordinates
+    joint_id: 1
+    relative_orientation:
+      method: euler
+      euler_angles: [0, 90, 0]
+  RotateJ2:
+    kind: joint-coordinates
+    joint_id: 2
+    relative_orientation:
+      method: euler
+      euler_angles: [90, 0, 0]
