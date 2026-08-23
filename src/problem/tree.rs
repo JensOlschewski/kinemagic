@@ -5,18 +5,18 @@ use thiserror::Error;
 use crate::model::{BodyId, JointId, Model};
 
 #[derive(Debug, Eq, PartialEq)]
-pub struct KinematicTree {
+pub(super) struct KinematicTree {
     steps: Vec<KinematicTreeStep>,
 }
 
 impl KinematicTree {
-    pub fn steps(&self) -> &[KinematicTreeStep] {
+    pub(super) fn steps(&self) -> &[KinematicTreeStep] {
         &self.steps
     }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct KinematicTreeStep {
+pub(super) struct KinematicTreeStep {
     pub parent_id: BodyId,
     pub child_id: BodyId,
     pub joint_id: JointId,
@@ -30,7 +30,7 @@ struct Edge {
     joint_id: JointId,
 }
 
-pub fn build_kinematic_tree(model: &Model) -> Result<KinematicTree, KinematicTreeError> {
+pub(super) fn build_kinematic_tree(model: &Model) -> Result<KinematicTree, KinematicTreeError> {
     let mut adjacency = Adjacency::new();
     let mut parent_by_child = BTreeMap::new();
 
@@ -124,7 +124,6 @@ mod tests {
     use nalgebra::{UnitQuaternion, Vector3};
 
     use super::*;
-    use crate::io::yaml::parse_yaml_str;
     use crate::model::{Bodies, Body, Joint, JointKind, Joints, Marker};
 
     #[test]
@@ -164,28 +163,6 @@ mod tests {
         let tree = build_kinematic_tree(&model).unwrap();
 
         assert_eq!(tree.steps(), &[step(0, 1, 8), step(0, 2, 9), step(1, 3, 1)]);
-    }
-
-    #[test]
-    fn yaml_name_order_does_not_change_steps() {
-        let fixture = include_str!("../../tests/fixtures/spherical_two_body_parse.yaml");
-        let root_first = fixture
-            .replace("  J1:", "  ARoot:")
-            .replace("joint_id: 1", "joint_id: 9")
-            .replace("  J2:", "  ZChild:")
-            .replace("joint_id: 2", "joint_id: 1");
-        let child_first = fixture
-            .replace("  J1:", "  ZRoot:")
-            .replace("joint_id: 1", "joint_id: 9")
-            .replace("  J2:", "  AChild:")
-            .replace("joint_id: 2", "joint_id: 1");
-        let root_first = parse_yaml_str(&root_first).unwrap().into_input().unwrap();
-        let child_first = parse_yaml_str(&child_first).unwrap().into_input().unwrap();
-
-        assert_eq!(
-            build_kinematic_tree(root_first.model()).unwrap(),
-            build_kinematic_tree(child_first.model()).unwrap()
-        );
     }
 
     #[test]

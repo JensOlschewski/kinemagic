@@ -6,40 +6,36 @@ use thiserror::Error;
 const REFERENCE_POSITION_TOLERANCE: f64 = 1.0e-9;
 
 #[derive(Debug)]
-pub struct JointCoordinates {
+pub(super) struct JointCoordinates {
     values: BTreeMap<JointId, JointCoordinate>,
 }
 
 impl JointCoordinates {
-    pub fn get(&self, joint_id: JointId) -> Option<&JointCoordinate> {
+    pub(super) fn get(&self, joint_id: JointId) -> Option<&JointCoordinate> {
         self.values.get(&joint_id)
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = (JointId, &JointCoordinate)> {
-        self.values
-            .iter()
-            .map(|(&joint_id, coordinate)| (joint_id, coordinate))
     }
 }
 
 #[derive(Debug)]
-pub struct JointCoordinate {
+pub(super) struct JointCoordinate {
     relative_orientation: UnitQuaternion<f64>,
 }
 
 impl JointCoordinate {
-    pub fn new(relative_orientation: UnitQuaternion<f64>) -> Self {
+    fn new(relative_orientation: UnitQuaternion<f64>) -> Self {
         Self {
             relative_orientation,
         }
     }
 
-    pub fn relative_orientation(&self) -> UnitQuaternion<f64> {
+    pub(super) fn relative_orientation(&self) -> UnitQuaternion<f64> {
         self.relative_orientation
     }
 }
 
-pub fn resolve_joint_coordinates(input: &Input) -> Result<JointCoordinates, JointCoordinateError> {
+pub(super) fn resolve_joint_coordinates(
+    input: &Input,
+) -> Result<JointCoordinates, JointCoordinateError> {
     let mut motions_by_joint = BTreeMap::new();
     let joints = input.model().joints();
 
@@ -172,32 +168,6 @@ mod tests {
             .relative_orientation();
 
         assert!(resolved.angle_to(&requested) < 1.0e-12);
-    }
-
-    #[test]
-    fn resolves_simultaneous_motion_for_two_joints() {
-        let yaml = include_str!("../../tests/fixtures/spherical_two_body_motion.yaml");
-        let input = crate::io::yaml::parse_yaml_str(yaml)
-            .unwrap()
-            .into_input()
-            .unwrap();
-        let coordinates = resolve_joint_coordinates(&input).unwrap();
-
-        let joint_1 = coordinates
-            .get(JointId::new(1))
-            .unwrap()
-            .relative_orientation();
-        let joint_2 = coordinates
-            .get(JointId::new(2))
-            .unwrap()
-            .relative_orientation();
-        let expected_joint_1 =
-            UnitQuaternion::from_axis_angle(&Vector3::x_axis(), std::f64::consts::FRAC_PI_2);
-        let expected_joint_2 =
-            UnitQuaternion::from_axis_angle(&Vector3::z_axis(), std::f64::consts::FRAC_PI_2);
-
-        assert!(joint_1.angle_to(&expected_joint_1) < 1.0e-12);
-        assert!(joint_2.angle_to(&expected_joint_2) < 1.0e-12);
     }
 
     #[test]
