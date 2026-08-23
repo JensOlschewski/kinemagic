@@ -3,6 +3,25 @@ use std::collections::HashSet;
 use nalgebra::{UnitQuaternion, Vector3};
 use thiserror::Error;
 
+pub struct Input {
+    model: Model,
+    motions: Vec<Motion>,
+}
+
+impl Input {
+    pub fn new(model: Model, motions: Vec<Motion>) -> Self {
+        Self { model, motions }
+    }
+
+    pub fn model(&self) -> &Model {
+        &self.model
+    }
+
+    pub fn motions(&self) -> &[Motion] {
+        &self.motions
+    }
+}
+
 pub struct Model {
     bodies: Bodies,
     joints: Joints,
@@ -118,6 +137,10 @@ impl Joints {
     pub fn iter(&self) -> impl Iterator<Item = &Joint> {
         self.joints.iter()
     }
+
+    pub fn contains(&self, id: JointId) -> bool {
+        self.joints.iter().any(|joint| joint.id() == id)
+    }
 }
 
 pub struct Body {
@@ -212,6 +235,45 @@ impl Joint {
     }
 }
 
+pub struct Motion {
+    name: String,
+    kind: MotionKind,
+    joint_id: JointId,
+    relative_orientation: UnitQuaternion<f64>,
+}
+
+impl Motion {
+    pub fn new(
+        name: impl Into<String>,
+        kind: MotionKind,
+        joint_id: JointId,
+        relative_orientation: UnitQuaternion<f64>,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            kind,
+            joint_id,
+            relative_orientation,
+        }
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn kind(&self) -> MotionKind {
+        self.kind
+    }
+
+    pub fn joint_id(&self) -> JointId {
+        self.joint_id
+    }
+
+    pub fn relative_orientation(&self) -> UnitQuaternion<f64> {
+        self.relative_orientation
+    }
+}
+
 pub struct Marker {
     name: String,
     body_id: BodyId,
@@ -277,6 +339,12 @@ impl Point {
 #[non_exhaustive]
 pub enum JointKind {
     Spherical,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum MotionKind {
+    JointCoordinates,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, PartialOrd, Ord)]

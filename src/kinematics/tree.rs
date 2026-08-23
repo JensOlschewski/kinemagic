@@ -179,12 +179,12 @@ mod tests {
             .replace("joint_id: 1", "joint_id: 9")
             .replace("  J2:", "  AChild:")
             .replace("joint_id: 2", "joint_id: 1");
-        let root_first = parse_yaml_str(&root_first).unwrap().into_model().unwrap();
-        let child_first = parse_yaml_str(&child_first).unwrap().into_model().unwrap();
+        let root_first = parse_yaml_str(&root_first).unwrap().into_input().unwrap();
+        let child_first = parse_yaml_str(&child_first).unwrap().into_input().unwrap();
 
         assert_eq!(
-            build_kinematic_tree(&root_first).unwrap(),
-            build_kinematic_tree(&child_first).unwrap()
+            build_kinematic_tree(root_first.model()).unwrap(),
+            build_kinematic_tree(child_first.model()).unwrap()
         );
     }
 
