@@ -363,6 +363,12 @@ impl BodyId {
     }
 }
 
+impl std::fmt::Display for BodyId {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}", self.0)
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub struct JointId(u32);
 
