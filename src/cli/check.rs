@@ -1,13 +1,11 @@
 use crate::cli::CheckArgs;
 
-use super::read_input;
+use kinemagic::io::load_and_prepare;
 
 pub fn run(args: CheckArgs) -> Result<(), Box<dyn std::error::Error>> {
-    let input = args.input;
+    load_and_prepare(&args.input)?;
 
-    let _yaml_string = read_input(&input)?;
-
-    println!("check dispatched: {}", input.display());
+    println!("valid: {}", args.input.display());
 
     Ok(())
 }

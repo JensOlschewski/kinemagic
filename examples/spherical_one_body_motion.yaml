@@ -1,8 +1,8 @@
 # Kinemagic M1 example: one moving body connected to ground by a spherical joint.
 #
 # Run:
-#   km check examples/spherical_one_body_simple_chain.yaml
-#   km solve examples/spherical_one_body_simple_chain.yaml
+#   km check examples/spherical_one_body_motion.yaml
+#   km solve examples/spherical_one_body_motion.yaml
 #
 # This example shows only features supported by M1.
 # Positions describe the reference configuration.
