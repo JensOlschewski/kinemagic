@@ -1,6 +1,54 @@
-use crate::model::Marker;
+use crate::model::{BodyId, Marker};
+use crate::problem::PreparedProblem;
+use std::collections::BTreeMap;
 
 use nalgebra::{UnitQuaternion, Vector3};
+
+pub struct BodyPoses {
+    poses: BTreeMap<BodyId, BodyPose>,
+}
+
+impl BodyPoses {
+    pub fn get(&self, body_id: BodyId) -> Option<&BodyPose> {
+        self.poses.get(&body_id)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&BodyId, &BodyPose)> {
+        self.poses.iter()
+    }
+}
+
+pub fn solve(problem: &PreparedProblem) -> BodyPoses {
+    let mut poses = BTreeMap::new();
+
+    poses.insert(
+        BodyId::GROUND,
+        BodyPose::new(Vector3::zeros(), UnitQuaternion::identity()),
+    );
+
+    for step in problem.steps() {
+        let joint = problem
+            .model()
+            .joints()
+            .get(step.joint_id())
+            .expect("PreparedProblem contains missing joint");
+
+        let parent = poses
+            .get(&step.parent_id())
+            .expect("PreparedProblem contains unsolved parent");
+
+        let child = spherical_child_pose(
+            parent,
+            joint.i_marker(),
+            joint.j_marker(),
+            step.relative_orientation(),
+        );
+
+        poses.insert(step.child_id(), child);
+    }
+
+    BodyPoses { poses }
+}
 
 pub struct BodyPose {
     position: Vector3<f64>,
