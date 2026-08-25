@@ -104,12 +104,12 @@ impl Bodies {
         Ok(Self { bodies })
     }
 
-    pub fn get(&self, id: BodyId) -> Option<&Body> {
-        self.bodies.iter().find(|body| body.id() == id)
-    }
-
     pub fn iter(&self) -> impl Iterator<Item = &Body> {
         self.bodies.iter()
+    }
+
+    pub fn get(&self, id: BodyId) -> Option<&Body> {
+        self.iter().find(|body| body.id() == id)
     }
 
     pub fn contains(&self, id: BodyId) -> bool {
@@ -138,8 +138,12 @@ impl Joints {
         self.joints.iter()
     }
 
+    pub fn get(&self, id: JointId) -> Option<&Joint> {
+        self.iter().find(|joint| joint.id() == id)
+    }
+
     pub fn contains(&self, id: JointId) -> bool {
-        self.joints.iter().any(|joint| joint.id() == id)
+        self.get(id).is_some()
     }
 }
 
