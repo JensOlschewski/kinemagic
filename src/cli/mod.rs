@@ -1,4 +1,4 @@
-use std::{fs, io, path::PathBuf};
+use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
 
@@ -28,10 +28,6 @@ pub struct CheckArgs {
 #[derive(Args)]
 pub struct SolveArgs {
     input: PathBuf,
-}
-
-fn read_input(input_path: &PathBuf) -> io::Result<String> {
-    fs::read_to_string(input_path)
 }
 
 #[cfg(test)]
@@ -87,11 +83,38 @@ mod tests {
     }
 
     #[test]
-    fn check_accepts_readable_file() {
+    fn check_accepts_valid_no_motion_file() {
         let result = check::run(CheckArgs {
             input: "tests/fixtures/spherical_one_body_parse.yaml".into(),
         });
 
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn check_accepts_valid_motion_file() {
+        let result = check::run(CheckArgs {
+            input: "tests/fixtures/spherical_two_body_motion.yaml".into(),
+        });
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn check_rejects_malformed_yaml() {
+        let result = check::run(CheckArgs {
+            input: "tests/fixtures/malformed.yaml".into(),
+        });
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn check_rejects_not_solve_ready_model() {
+        let result = check::run(CheckArgs {
+            input: "tests/fixtures/spherical_duplicate_motion.yaml".into(),
+        });
+
+        assert!(result.is_err());
     }
 }
