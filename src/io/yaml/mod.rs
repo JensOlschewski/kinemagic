@@ -10,6 +10,7 @@ use crate::model::{
 use nalgebra::{UnitQuaternion, Vector3};
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct YamlInput {
     pub hardpoints: BTreeMap<String, [f64; 3]>,
     #[serde(default)]
@@ -22,6 +23,8 @@ pub struct YamlInput {
 
 impl YamlInput {
     pub fn into_input(self) -> Result<Input, YamlError> {
+        self.validate_finite()?;
+
         let YamlInput {
             hardpoints,
             bodies,
@@ -68,9 +71,50 @@ impl YamlInput {
 
         Ok(Input::new(model, motions))
     }
+
+    fn validate_finite(&self) -> Result<(), YamlError> {
+        for (name, coordinates) in &self.hardpoints {
+            validate_components(&format!("hardpoints.{name}"), coordinates)?;
+        }
+
+        for (name, body) in &self.bodies {
+            body.position
+                .validate_finite(&format!("bodies.{name}.position"))?;
+            body.orientation
+                .validate_finite(&format!("bodies.{name}.orientation.euler_angles"))?;
+        }
+
+        for (name, joint) in &self.joints {
+            joint
+                .i
+                .position
+                .validate_finite(&format!("joints.{name}.i.position"))?;
+            joint
+                .i
+                .orientation
+                .validate_finite(&format!("joints.{name}.i.orientation.euler_angles"))?;
+            joint
+                .j
+                .position
+                .validate_finite(&format!("joints.{name}.j.position"))?;
+            joint
+                .j
+                .orientation
+                .validate_finite(&format!("joints.{name}.j.orientation.euler_angles"))?;
+        }
+
+        for (name, motion) in &self.motions {
+            motion
+                .relative_orientation
+                .validate_finite(&format!("motions.{name}.relative_orientation.euler_angles"))?;
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct YamlBody {
     pub body_id: u32,
     pub side: YamlSide,
@@ -128,6 +172,7 @@ impl YamlBody {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct YamlJoint {
     pub joint_id: u32,
     pub kind: YamlJointKind,
@@ -174,25 +219,27 @@ impl YamlJoint {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(tag = "kind", rename_all = "kebab-case")]
-pub enum YamlMotion {
-    JointCoordinates {
-        joint_id: u32,
-        relative_orientation: YamlOrientation,
-    },
+#[serde(deny_unknown_fields)]
+pub struct YamlMotion {
+    kind: YamlMotionKind,
+    joint_id: u32,
+    relative_orientation: YamlOrientation,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+enum YamlMotionKind {
+    JointCoordinates,
 }
 
 impl YamlMotion {
     fn into_motion(self, name: String) -> Motion {
-        match self {
-            Self::JointCoordinates {
-                joint_id,
-                relative_orientation,
-            } => Motion::new(
+        match self.kind {
+            YamlMotionKind::JointCoordinates => Motion::new(
                 name,
                 MotionKind::JointCoordinates,
-                JointId::new(joint_id),
-                relative_orientation.into_unit_quaternion(),
+                JointId::new(self.joint_id),
+                self.relative_orientation.into_unit_quaternion(),
             ),
         }
     }
@@ -207,6 +254,7 @@ pub enum YamlSide {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct YamlMarker {
     pub body_id: u32,
     pub position: YamlPosition,
@@ -256,16 +304,23 @@ impl YamlJointKind {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(tag = "method")]
-pub enum YamlOrientation {
-    #[serde(rename = "euler")]
-    Euler { euler_angles: [f64; 3] },
+#[serde(deny_unknown_fields)]
+pub struct YamlOrientation {
+    method: YamlOrientationMethod,
+    euler_angles: [f64; 3],
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum YamlOrientationMethod {
+    Euler,
 }
 
 impl YamlOrientation {
     fn into_unit_quaternion(self) -> UnitQuaternion<f64> {
-        match self {
-            Self::Euler { euler_angles } => {
+        match self.method {
+            YamlOrientationMethod::Euler => {
+                let euler_angles = self.euler_angles;
                 let [alpha, beta, gamma] = euler_angles.map(f64::to_radians);
 
                 UnitQuaternion::from_axis_angle(&Vector3::z_axis(), alpha)
@@ -273,6 +328,10 @@ impl YamlOrientation {
                     * UnitQuaternion::from_axis_angle(&Vector3::z_axis(), gamma)
             }
         }
+    }
+
+    fn validate_finite(&self, path: &str) -> Result<(), YamlError> {
+        validate_components(path, &self.euler_angles)
     }
 }
 
@@ -293,6 +352,26 @@ impl YamlPosition {
 
         Ok(Vector3::new(x, y, z))
     }
+
+    fn validate_finite(&self, path: &str) -> Result<(), YamlError> {
+        match self {
+            Self::Hardpoint(_) => Ok(()),
+            Self::Coordinates(coordinates) => validate_components(path, coordinates),
+        }
+    }
+}
+
+fn validate_components(path: &str, values: &[f64; 3]) -> Result<(), YamlError> {
+    for (index, value) in values.iter().copied().enumerate() {
+        if !value.is_finite() {
+            return Err(YamlError::NonFinite {
+                path: format!("{path}[{index}]"),
+                value,
+            });
+        }
+    }
+
+    Ok(())
 }
 
 #[derive(Debug, Error)]
@@ -313,12 +392,47 @@ pub enum YamlError {
     UnknownJointBody { name: String, body_id: u32 },
     #[error("body `{name}` uses reserved body ID 0; ground is implicit")]
     ExplicitGround { name: String },
+    #[error("unsupported `joints` shape at `{path}`; expected flat `joints.<name>` definitions")]
+    UnsupportedJointsShape { path: String },
+    #[error("non-finite value `{value}` at `{path}`")]
+    NonFinite { path: String, value: f64 },
     #[error(transparent)]
     Model(#[from] ModelBuildError),
 }
 
 pub fn parse_yaml_str(input: &str) -> Result<YamlInput, YamlError> {
+    let value = serde_yaml_ng::from_str(input).map_err(YamlError::Parse)?;
+    reject_legacy_joint_shape(&value)?;
+
     serde_yaml_ng::from_str(input).map_err(YamlError::Parse)
+}
+
+fn reject_legacy_joint_shape(value: &serde_yaml_ng::Value) -> Result<(), YamlError> {
+    let Some(joints) = value
+        .as_mapping()
+        .and_then(|root| root.get(serde_yaml_ng::Value::String("joints".to_owned())))
+        .and_then(serde_yaml_ng::Value::as_mapping)
+    else {
+        return Ok(());
+    };
+
+    let joint_id = serde_yaml_ng::Value::String("joint_id".to_owned());
+
+    for section in ["primary", "secondary"] {
+        let key = serde_yaml_ng::Value::String(section.to_owned());
+
+        if joints.get(&key).is_some_and(|definition| {
+            definition
+                .as_mapping()
+                .is_none_or(|map| !map.contains_key(&joint_id))
+        }) {
+            return Err(YamlError::UnsupportedJointsShape {
+                path: format!("joints.{section}"),
+            });
+        }
+    }
+
+    Ok(())
 }
 
 pub fn parse_yaml_file(path: impl AsRef<Path>) -> Result<YamlInput, YamlError> {
@@ -443,6 +557,159 @@ mod tests {
         );
 
         assert!(matches!(parse_yaml_str(&yaml), Err(YamlError::Parse(_))));
+    }
+
+    #[test]
+    fn rejects_unknown_fields_with_context() {
+        let valid = include_str!("../../../tests/fixtures/spherical_one_body_parse.yaml");
+        let motion = include_str!("../../../tests/fixtures/spherical_two_body_motion.yaml");
+        let cases = [
+            (format!("{valid}\nunexpected: true\n"), "unexpected"),
+            (
+                valid.replacen(
+                    "    body_id: 1\n",
+                    "    body_id: 1\n    unexpected: true\n",
+                    1,
+                ),
+                "bodies.B1",
+            ),
+            (
+                valid.replace(
+                    "    joint_id: 1\n",
+                    "    joint_id: 1\n    unexpected: true\n",
+                ),
+                "joints.J1",
+            ),
+            (
+                valid.replace(
+                    "      body_id: 0\n",
+                    "      body_id: 0\n      unexpected: true\n",
+                ),
+                "joints.J1.i",
+            ),
+            (
+                valid.replacen(
+                    "      method: euler\n",
+                    "      method: euler\n      unexpected: true\n",
+                    1,
+                ),
+                "bodies.B1.orientation",
+            ),
+            (
+                motion.replace(
+                    "  RotateJ1:\n    kind: joint-coordinates\n",
+                    "  RotateJ1:\n    kind: joint-coordinates\n    unexpected: true\n",
+                ),
+                "motions.RotateJ1",
+            ),
+        ];
+
+        for (yaml, context) in cases {
+            let error = parse_yaml_str(&yaml).unwrap_err().to_string();
+
+            assert!(error.contains("unexpected"), "{context}: {error}");
+            assert!(error.contains(context), "{context}: {error}");
+        }
+    }
+
+    #[test]
+    fn rejects_legacy_joint_nesting() {
+        for section in ["primary", "secondary"] {
+            let yaml = format!("hardpoints: {{}}\njoints:\n  {section}:\n    J1: {{}}\n");
+
+            assert!(matches!(
+                parse_yaml_str(&yaml),
+                Err(YamlError::UnsupportedJointsShape { path })
+                    if path == format!("joints.{section}")
+            ));
+        }
+
+        let canonical = include_str!("../../../tests/fixtures/spherical_one_body_parse.yaml")
+            .replace("  J1:", "  primary:");
+
+        assert!(parse_yaml_str(&canonical).is_ok());
+    }
+
+    #[test]
+    fn rejects_unsupported_features_with_context() {
+        let valid = include_str!("../../../tests/fixtures/spherical_one_body_parse.yaml");
+        let motion = include_str!("../../../tests/fixtures/spherical_two_body_motion.yaml");
+        let cases = [
+            (
+                valid.replace("kind: spherical", "kind: revolute"),
+                "J1",
+                "revolute",
+            ),
+            (
+                motion.replacen("kind: joint-coordinates", "kind: unsupported", 1),
+                "RotateJ1",
+                "unsupported",
+            ),
+            (
+                valid.replacen("method: euler", "method: quaternion", 1),
+                "B1",
+                "quaternion",
+            ),
+        ];
+
+        for (yaml, context, supplied) in cases {
+            let error = parse_yaml_str(&yaml).unwrap_err().to_string();
+
+            assert!(error.contains(context), "{error}");
+            assert!(error.contains(supplied), "{error}");
+        }
+    }
+
+    #[test]
+    fn rejects_non_finite_components() {
+        let valid = include_str!("../../../tests/fixtures/spherical_one_body_parse.yaml");
+        let motion = include_str!("../../../tests/fixtures/spherical_two_body_motion.yaml");
+        let cases = [
+            (
+                valid.replace("P1: [0.0, 0.0, 0.0]", "P1: [0.0, .nan, 0.0]"),
+                "hardpoints.P1[1]",
+            ),
+            (
+                valid.replace(
+                    "position: [0.0, 0.0, -100.0]",
+                    "position: [.inf, 0.0, -100.0]",
+                ),
+                "bodies.B1.position[0]",
+            ),
+            (
+                valid.replacen("position: P1", "position: [0.0, -.inf, 0.0]", 1),
+                "joints.J1.i.position[1]",
+            ),
+            (
+                valid.replacen("euler_angles: [0, 0, 0]", "euler_angles: [0, .nan, 0]", 1),
+                "bodies.B1.orientation.euler_angles[1]",
+            ),
+            (
+                valid.replacen(
+                    "        euler_angles: [0, 0, 0]",
+                    "        euler_angles: [0, 0, .inf]",
+                    1,
+                ),
+                "joints.J1.i.orientation.euler_angles[2]",
+            ),
+            (
+                motion.replacen("euler_angles: [0, 90, 0]", "euler_angles: [.nan, 90, 0]", 1),
+                "motions.RotateJ1.relative_orientation.euler_angles[0]",
+            ),
+        ];
+
+        for (yaml, expected_path) in cases {
+            let result = parse_yaml_str(&yaml).unwrap().into_input();
+            let error = match result {
+                Ok(_) => panic!("non-finite input should fail at {expected_path}"),
+                Err(error) => error,
+            };
+
+            assert!(matches!(
+                error,
+                YamlError::NonFinite { path, .. } if path == expected_path
+            ));
+        }
     }
 
     #[test]
