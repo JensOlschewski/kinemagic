@@ -5,10 +5,12 @@ const VALID_MOTION: &str = "tests/fixtures/spherical_two_body_motion.yaml";
 const MALFORMED: &str = "tests/fixtures/malformed.yaml";
 const NOT_SOLVE_READY: &str = "tests/fixtures/spherical_duplicate_motion.yaml";
 const MISSING: &str = "tests/fixtures/missing.yaml";
+const DOCUMENTED_EXAMPLE: &str = "examples/spherical_one_body_motion.yaml";
 
 const EXPECTED_ONE_BODY: &str =
     include_str!("fixtures/spherical_one_body_parse_expected_output.txt");
-
+const EXPECTED_ONE_BODY_EXAMPLE: &str =
+    include_str!("fixtures/spherical_one_body_motion_expected_output.txt");
 const EXPECTED_TWO_BODY: &str =
     include_str!("fixtures/spherical_two_body_motion_expected_output.txt");
 
@@ -20,6 +22,11 @@ fn check_accepts_valid_no_motion_problem() {
 #[test]
 fn check_accepts_valid_motion_problem() {
     assert_check_succeeds(VALID_MOTION);
+}
+
+#[test]
+fn check_accepts_valid_example_motion_problem() {
+    assert_check_succeeds(DOCUMENTED_EXAMPLE);
 }
 
 #[test]
@@ -48,6 +55,18 @@ fn solve_renders_two_body_motion_problem() {
     assert!(output.status.success());
     assert!(output.stderr.is_empty());
     assert_eq!(String::from_utf8(output.stdout).unwrap(), EXPECTED_TWO_BODY);
+}
+
+#[test]
+fn solve_renders_one_body_example_problem() {
+    let output = run("solve", DOCUMENTED_EXAMPLE);
+
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        EXPECTED_ONE_BODY_EXAMPLE
+    );
 }
 
 #[test]
