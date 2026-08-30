@@ -8,7 +8,7 @@ use crate::model::{BodyId, Input, JointId, Model};
 use coordinates::resolve_joint_coordinates;
 use tree::build_kinematic_tree;
 
-pub use coordinates::JointCoordinateError;
+pub use coordinates::{JointCoordinate, JointCoordinateError};
 pub use tree::KinematicTreeError;
 
 pub struct PreparedProblem {
@@ -31,7 +31,7 @@ pub struct PreparedStep {
     parent_id: BodyId,
     child_id: BodyId,
     joint_id: JointId,
-    relative_orientation: UnitQuaternion<f64>,
+    joint_coordinate: JointCoordinate,
 }
 
 impl PreparedStep {
@@ -47,8 +47,12 @@ impl PreparedStep {
         self.joint_id
     }
 
+    pub fn joint_coordinate(&self) -> JointCoordinate {
+        self.joint_coordinate
+    }
+
     pub fn relative_orientation(&self) -> UnitQuaternion<f64> {
-        self.relative_orientation
+        self.joint_coordinate.relative_orientation()
     }
 }
 
@@ -67,7 +71,7 @@ pub fn prepare(input: Input) -> Result<PreparedProblem, PrepareError> {
                 parent_id: step.parent_id,
                 child_id: step.child_id,
                 joint_id: step.joint_id,
-                relative_orientation: coordinate.relative_orientation(),
+                joint_coordinate: *coordinate,
             }
         })
         .collect();

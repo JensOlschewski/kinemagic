@@ -53,12 +53,10 @@ motions:
   RotateJ1:
     kind: joint-coordinates
     joint_id: 1
-    relative_orientation:
-      method: euler
-      euler_angles: [0, 90, 0]
+    displacement:
+      rot_x: 90
   RotateJ2:
     kind: joint-coordinates
     joint_id: 2
-    relative_orientation:
-      method: euler
-      euler_angles: [90, 0, 0]
+    displacement:
+      rot_z: 90

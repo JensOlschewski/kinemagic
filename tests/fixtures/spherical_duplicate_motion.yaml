@@ -29,12 +29,10 @@ motions:
   First:
     kind: joint-coordinates
     joint_id: 1
-    relative_orientation:
-      method: euler
-      euler_angles: [0, 0, 0]
+    displacement:
+      rot_x: 90.0
   Second:
     kind: joint-coordinates
     joint_id: 1
-    relative_orientation:
-      method: euler
-      euler_angles: [0, 90, 0]
+    displacement:
+      rot_x: 90.0

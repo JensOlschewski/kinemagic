@@ -73,6 +73,7 @@ fn solves_reordered_chain_with_simultaneous_motions() {
         problem.model().joints().iter().next().unwrap().id(),
         JointId::new(2)
     );
+
     assert_eq!(problem.steps()[0].joint_id(), JointId::new(1));
 
     let poses = solve(&problem);
@@ -82,10 +83,12 @@ fn solves_reordered_chain_with_simultaneous_motions() {
 
     let first_orientation = problem.steps()[0].relative_orientation();
     let second_orientation = problem.steps()[1].relative_orientation();
+
     assert_orientation_close(
         poses.get(BodyId::new(1)).unwrap().orientation(),
         first_orientation,
     );
+
     assert_orientation_close(
         poses.get(BodyId::new(2)).unwrap().orientation(),
         first_orientation * second_orientation,
