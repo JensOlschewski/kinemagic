@@ -243,7 +243,7 @@ pub struct Motion {
     name: String,
     kind: MotionKind,
     joint_id: JointId,
-    relative_orientation: UnitQuaternion<f64>,
+    joint_displacement: JointDisplacement,
 }
 
 impl Motion {
@@ -251,13 +251,13 @@ impl Motion {
         name: impl Into<String>,
         kind: MotionKind,
         joint_id: JointId,
-        relative_orientation: UnitQuaternion<f64>,
+        joint_displacement: JointDisplacement,
     ) -> Self {
         Self {
             name: name.into(),
             kind,
             joint_id,
-            relative_orientation,
+            joint_displacement,
         }
     }
 
@@ -273,8 +273,8 @@ impl Motion {
         self.joint_id
     }
 
-    pub fn relative_orientation(&self) -> UnitQuaternion<f64> {
-        self.relative_orientation
+    pub fn joint_displacement(&self) -> &JointDisplacement {
+        &self.joint_displacement
     }
 }
 
@@ -349,6 +349,22 @@ pub enum JointKind {
 #[non_exhaustive]
 pub enum MotionKind {
     JointCoordinates,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct JointDisplacement {
+    // Add more joints later here
+    rotation: Vector3<Option<f64>>,
+}
+
+impl JointDisplacement {
+    pub fn new(rotation: Vector3<Option<f64>>) -> Self {
+        Self { rotation }
+    }
+
+    pub fn rotation(&self) -> &Vector3<Option<f64>> {
+        &self.rotation
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, PartialOrd, Ord)]

@@ -68,7 +68,7 @@ fn yaml_name_order_does_not_change_prepared_steps() {
 #[test]
 fn exposes_typed_preparation_errors() {
     let yaml = format!(
-        "{}\nmotions:\n  Unknown:\n    kind: joint-coordinates\n    joint_id: 99\n    relative_orientation:\n      method: euler\n      euler_angles: [0, 0, 0]\n",
+        "{}\nmotions:\n  Unknown:\n    kind: joint-coordinates\n    joint_id: 99\n    displacement:\n      rot_x: 90.0\n",
         include_str!("fixtures/spherical_one_body_parse.yaml")
     );
     let input = parse_yaml_str(&yaml).unwrap().into_input().unwrap();

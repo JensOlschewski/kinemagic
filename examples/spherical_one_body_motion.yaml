@@ -66,15 +66,13 @@ joints:
 
 # motions is optional. Without an entry, a joint keeps its reference orientation.
 # Each motion targets one joint by joint_id.
-# M1 accepts at most one motion per joint.
-# relative_orientation defines the child j-marker orientation relative to
-# the parent i-marker.
-# Euler angles use right-handed Z-X-Z order in degrees.
+# displacement rot_x | rot_y | rot_z defines a rotation-vector delta from the
+# reference joint orientation, expressed in the reference i-marker frame, in degrees.
+# Omitted components remain unconstrained.
 # All motions describe one configuration; they are not applied as a sequence.
 motions:
   RotateJ1:
     kind: joint-coordinates
     joint_id: 1
-    relative_orientation:
-      method: euler
-      euler_angles: [0, 90, 0]
+    displacement:
+      rot_x: 90.0

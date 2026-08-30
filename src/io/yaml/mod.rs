@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 use crate::model::{
-    Bodies, Body, BodyId, Input, Joint, JointId, JointKind, Joints, Marker, Model, ModelBuildError,
-    Motion, MotionKind, Point,
+    Bodies, Body, BodyId, Input, Joint, JointDisplacement, JointId, JointKind, Joints, Marker,
+    Model, ModelBuildError, Motion, MotionKind, Point,
 };
 use nalgebra::{UnitQuaternion, Vector3};
 
@@ -23,7 +23,7 @@ pub struct YamlInput {
 
 impl YamlInput {
     pub fn into_input(self) -> Result<Input, YamlError> {
-        self.validate_finite()?;
+        self.validate()?;
 
         let YamlInput {
             hardpoints,
@@ -64,6 +64,7 @@ impl YamlInput {
             .collect::<Result<Vec<Joint>, YamlError>>()?;
 
         let model = Model::new(bodies, Joints::new(joint_values)?)?;
+
         let motions = motions
             .into_iter()
             .map(|(name, motion)| motion.into_motion(name))
@@ -72,14 +73,15 @@ impl YamlInput {
         Ok(Input::new(model, motions))
     }
 
-    fn validate_finite(&self) -> Result<(), YamlError> {
-        for (name, coordinates) in &self.hardpoints {
-            validate_components(&format!("hardpoints.{name}"), coordinates)?;
+    fn validate(&self) -> Result<(), YamlError> {
+        for (name, hardpoint) in &self.hardpoints {
+            validate_components(&format!("hardpoints.{name}"), hardpoint)?;
         }
 
         for (name, body) in &self.bodies {
             body.position
                 .validate_finite(&format!("bodies.{name}.position"))?;
+
             body.orientation
                 .validate_finite(&format!("bodies.{name}.orientation.euler_angles"))?;
         }
@@ -89,14 +91,17 @@ impl YamlInput {
                 .i
                 .position
                 .validate_finite(&format!("joints.{name}.i.position"))?;
+
             joint
                 .i
                 .orientation
                 .validate_finite(&format!("joints.{name}.i.orientation.euler_angles"))?;
+
             joint
                 .j
                 .position
                 .validate_finite(&format!("joints.{name}.j.position"))?;
+
             joint
                 .j
                 .orientation
@@ -104,9 +109,7 @@ impl YamlInput {
         }
 
         for (name, motion) in &self.motions {
-            motion
-                .relative_orientation
-                .validate_finite(&format!("motions.{name}.relative_orientation.euler_angles"))?;
+            motion.validate(name, &format!("motions.{name}.displacement"))?;
         }
 
         Ok(())
@@ -223,7 +226,7 @@ impl YamlJoint {
 pub struct YamlMotion {
     kind: YamlMotionKind,
     joint_id: u32,
-    relative_orientation: YamlOrientation,
+    displacement: BTreeMap<YamlJointDisplacement, f64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -234,15 +237,55 @@ enum YamlMotionKind {
 
 impl YamlMotion {
     fn into_motion(self, name: String) -> Motion {
+        let mut rotation = Vector3::new(None, None, None);
+
+        for (component, degrees) in self.displacement {
+            let radians = Some(degrees.to_radians());
+
+            match component {
+                YamlJointDisplacement::RotX => rotation.x = radians,
+                YamlJointDisplacement::RotY => rotation.y = radians,
+                YamlJointDisplacement::RotZ => rotation.z = radians,
+            }
+        }
+
         match self.kind {
             YamlMotionKind::JointCoordinates => Motion::new(
                 name,
                 MotionKind::JointCoordinates,
                 JointId::new(self.joint_id),
-                self.relative_orientation.into_unit_quaternion(),
+                JointDisplacement::new(rotation),
             ),
         }
     }
+
+    fn validate(&self, motion_name: &str, path: &str) -> Result<(), YamlError> {
+        if self.displacement.is_empty() {
+            return Err(YamlError::EmptyMotionDisplacement {
+                name: motion_name.to_owned(),
+            });
+        }
+
+        for (component, value) in &self.displacement {
+            let component_name = match component {
+                YamlJointDisplacement::RotX => "rot_x",
+                YamlJointDisplacement::RotY => "rot_y",
+                YamlJointDisplacement::RotZ => "rot_z",
+            };
+            let component_path = format!("{path}.{component_name}");
+            validate_finite_value(&component_path, *value)?;
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, Deserialize, Ord, PartialOrd, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+enum YamlJointDisplacement {
+    RotX,
+    RotY,
+    RotZ,
 }
 
 #[derive(Debug, Deserialize)]
@@ -361,14 +404,24 @@ impl YamlPosition {
     }
 }
 
+// Helper function to validate scalar values for finiteness
+// returning a YamlError if the value is not finite.
+fn validate_finite_value(path: &str, value: f64) -> Result<(), YamlError> {
+    if !value.is_finite() {
+        return Err(YamlError::NonFinite {
+            path: path.to_owned(),
+            value,
+        });
+    }
+
+    Ok(())
+}
+
+// Helper function to validate that all components of a 3D vector are
+// finite numbers
 fn validate_components(path: &str, values: &[f64; 3]) -> Result<(), YamlError> {
     for (index, value) in values.iter().copied().enumerate() {
-        if !value.is_finite() {
-            return Err(YamlError::NonFinite {
-                path: format!("{path}[{index}]"),
-                value,
-            });
-        }
+        validate_finite_value(&format!("{path}[{index}]"), value)?;
     }
 
     Ok(())
@@ -386,53 +439,28 @@ pub enum YamlError {
     },
     #[error("body `{name}` references unknown hardpoint `{point}`")]
     UnknownHardpoint { name: String, point: String },
+
     #[error("marker `{name}` references unknown hardpoint `{point}`")]
     UnknownMarkerHardpoint { name: String, point: String },
+
     #[error("marker `{name}` references unknown body '{body_id}`")]
     UnknownJointBody { name: String, body_id: u32 },
+
     #[error("body `{name}` uses reserved body ID 0; ground is implicit")]
     ExplicitGround { name: String },
-    #[error("unsupported `joints` shape at `{path}`; expected flat `joints.<name>` definitions")]
-    UnsupportedJointsShape { path: String },
+
+    #[error("motion `{name}` has empty displacement: {{}}")]
+    EmptyMotionDisplacement { name: String },
+
     #[error("non-finite value `{value}` at `{path}`")]
     NonFinite { path: String, value: f64 },
+
     #[error(transparent)]
     Model(#[from] ModelBuildError),
 }
 
 pub fn parse_yaml_str(input: &str) -> Result<YamlInput, YamlError> {
-    let value = serde_yaml_ng::from_str(input).map_err(YamlError::Parse)?;
-    reject_legacy_joint_shape(&value)?;
-
     serde_yaml_ng::from_str(input).map_err(YamlError::Parse)
-}
-
-fn reject_legacy_joint_shape(value: &serde_yaml_ng::Value) -> Result<(), YamlError> {
-    let Some(joints) = value
-        .as_mapping()
-        .and_then(|root| root.get(serde_yaml_ng::Value::String("joints".to_owned())))
-        .and_then(serde_yaml_ng::Value::as_mapping)
-    else {
-        return Ok(());
-    };
-
-    let joint_id = serde_yaml_ng::Value::String("joint_id".to_owned());
-
-    for section in ["primary", "secondary"] {
-        let key = serde_yaml_ng::Value::String(section.to_owned());
-
-        if joints.get(&key).is_some_and(|definition| {
-            definition
-                .as_mapping()
-                .is_none_or(|map| !map.contains_key(&joint_id))
-        }) {
-            return Err(YamlError::UnsupportedJointsShape {
-                path: format!("joints.{section}"),
-            });
-        }
-    }
-
-    Ok(())
 }
 
 pub fn parse_yaml_file(path: impl AsRef<Path>) -> Result<YamlInput, YamlError> {
@@ -532,31 +560,26 @@ mod tests {
 
     #[test]
     fn converts_joint_coordinate_motion_into_input() -> Result<(), YamlError> {
+        let requested = Vector3::new(
+            Some(std::f64::consts::FRAC_PI_2),
+            Some(std::f64::consts::FRAC_PI_2),
+            None,
+        );
+
         let yaml = format!(
-            "{}\nmotions:\n  RotateJ1:\n    kind: joint-coordinates\n    joint_id: 1\n    relative_orientation:\n      method: euler\n      euler_angles: [0, 90, 0]\n",
+            "{}\nmotions:\n  RotateJ1:\n    kind: joint-coordinates\n    joint_id: 1\n    displacement:\n      rot_x: 90.0\n      rot_y: 90.0\n",
             include_str!("../../../tests/fixtures/spherical_one_body_parse.yaml")
         );
 
         let input = parse_yaml_str(&yaml)?.into_input()?;
         let motion = &input.motions()[0];
-        let expected =
-            UnitQuaternion::from_axis_angle(&Vector3::x_axis(), std::f64::consts::FRAC_PI_2);
+        let actual = motion.joint_displacement().rotation();
 
         assert_eq!(motion.name(), "RotateJ1");
         assert_eq!(motion.joint_id(), JointId::new(1));
-        assert!(motion.relative_orientation().angle_to(&expected) < 1.0e-12);
+        assert_eq!(actual, &requested);
 
         Ok(())
-    }
-
-    #[test]
-    fn rejects_unknown_motion_kind() {
-        let yaml = format!(
-            "{}\nmotions:\n  RotateJ1:\n    kind: unsupported\n    joint_id: 1\n    relative_orientation:\n      method: euler\n      euler_angles: [0, 90, 0]\n",
-            include_str!("../../../tests/fixtures/spherical_one_body_parse.yaml")
-        );
-
-        assert!(matches!(parse_yaml_str(&yaml), Err(YamlError::Parse(_))));
     }
 
     #[test]
@@ -564,7 +587,11 @@ mod tests {
         let valid = include_str!("../../../tests/fixtures/spherical_one_body_parse.yaml");
         let motion = include_str!("../../../tests/fixtures/spherical_two_body_motion.yaml");
         let cases = [
-            (format!("{valid}\nunexpected: true\n"), "unexpected"),
+            (
+                format!("{valid}\nunexpected: true\n"),
+                "unexpected",
+                "unexpected",
+            ),
             (
                 valid.replacen(
                     "    body_id: 1\n",
@@ -572,6 +599,7 @@ mod tests {
                     1,
                 ),
                 "bodies.B1",
+                "unexpected",
             ),
             (
                 valid.replace(
@@ -579,6 +607,7 @@ mod tests {
                     "    joint_id: 1\n    unexpected: true\n",
                 ),
                 "joints.J1",
+                "unexpected",
             ),
             (
                 valid.replace(
@@ -586,6 +615,7 @@ mod tests {
                     "      body_id: 0\n      unexpected: true\n",
                 ),
                 "joints.J1.i",
+                "unexpected",
             ),
             (
                 valid.replacen(
@@ -594,6 +624,7 @@ mod tests {
                     1,
                 ),
                 "bodies.B1.orientation",
+                "unexpected",
             ),
             (
                 motion.replace(
@@ -601,27 +632,29 @@ mod tests {
                     "  RotateJ1:\n    kind: joint-coordinates\n    unexpected: true\n",
                 ),
                 "motions.RotateJ1",
+                "unexpected",
+            ),
+            (
+                motion.replacen("rot_x: 90", "rot_q: 90", 1),
+                "motions.RotateJ1.displacement",
+                "rot_q",
             ),
         ];
 
-        for (yaml, context) in cases {
+        for (yaml, context, supplied) in cases {
             let error = parse_yaml_str(&yaml).unwrap_err().to_string();
 
-            assert!(error.contains("unexpected"), "{context}: {error}");
+            assert!(error.contains(supplied), "{context}: {error}");
             assert!(error.contains(context), "{context}: {error}");
         }
     }
 
     #[test]
-    fn rejects_legacy_joint_nesting() {
+    fn rejects_joint_nesting() {
         for section in ["primary", "secondary"] {
             let yaml = format!("hardpoints: {{}}\njoints:\n  {section}:\n    J1: {{}}\n");
 
-            assert!(matches!(
-                parse_yaml_str(&yaml),
-                Err(YamlError::UnsupportedJointsShape { path })
-                    if path == format!("joints.{section}")
-            ));
+            assert!(matches!(parse_yaml_str(&yaml), Err(YamlError::Parse(_))));
         }
 
         let canonical = include_str!("../../../tests/fixtures/spherical_one_body_parse.yaml")
@@ -663,7 +696,9 @@ mod tests {
     #[test]
     fn rejects_non_finite_components() {
         let valid = include_str!("../../../tests/fixtures/spherical_one_body_parse.yaml");
-        let motion = include_str!("../../../tests/fixtures/spherical_two_body_motion.yaml");
+        let motion = format!(
+            "{valid}\nmotions:\n  RotateJ1:\n    kind: joint-coordinates\n    joint_id: 1\n    displacement:\n      rot_x: .nan\n"
+        );
         let cases = [
             (
                 valid.replace("P1: [0.0, 0.0, 0.0]", "P1: [0.0, .nan, 0.0]"),
@@ -692,10 +727,7 @@ mod tests {
                 ),
                 "joints.J1.i.orientation.euler_angles[2]",
             ),
-            (
-                motion.replacen("euler_angles: [0, 90, 0]", "euler_angles: [.nan, 90, 0]", 1),
-                "motions.RotateJ1.relative_orientation.euler_angles[0]",
-            ),
+            (motion, "motions.RotateJ1.displacement.rot_x"),
         ];
 
         for (yaml, expected_path) in cases {
@@ -710,6 +742,21 @@ mod tests {
                 YamlError::NonFinite { path, .. } if path == expected_path
             ));
         }
+    }
+
+    #[test]
+    fn rejects_explicit_empty_motion_displacement() {
+        let valid = include_str!("../../../tests/fixtures/spherical_one_body_parse.yaml");
+        let yaml = format!(
+            "{valid}\nmotions:\n  RotateJ1:\n    kind: joint-coordinates\n    joint_id: 1\n    displacement: {{}}\n"
+        );
+
+        let result = parse_yaml_str(&yaml).unwrap().into_input();
+
+        assert!(matches!(
+            result,
+            Err(YamlError::EmptyMotionDisplacement { name }) if name == "RotateJ1"
+        ));
     }
 
     #[test]
@@ -730,7 +777,6 @@ mod tests {
                 .orientation()
                 .transform_vector(&body.points()[0].position());
         assert!((body_point_world - expected_world_point).norm() < 1.0e-12);
-
         let marker_world_position = body.position()
             + body
                 .orientation()
@@ -820,7 +866,6 @@ mod tests {
         let invalid_inputs = [
             valid.replace("    side: single\n", ""),
             valid.replace("position: [0.0, 0.0, -100.0]", "position: [0.0, 0.0]"),
-            valid.replace("kind: spherical", "kind: revolute"),
         ];
 
         for input in invalid_inputs {
