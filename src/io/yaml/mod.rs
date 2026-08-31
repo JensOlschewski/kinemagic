@@ -1,13 +1,14 @@
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+
+use nalgebra::{UnitQuaternion, Vector3};
 use thiserror::Error;
 
 use crate::model::{
-    Bodies, Body, BodyId, Input, Joint, JointDisplacement, JointId, JointKind, Joints, Marker,
-    Model, ModelBuildError, Motion, MotionKind, Point,
+    Bodies, Body, BodyId, Input, Joint, JointDisplacement, JointId, JointKind, JointRole, Joints,
+    Marker, Model, ModelBuildError, Motion, MotionKind, Point,
 };
-use nalgebra::{UnitQuaternion, Vector3};
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -179,6 +180,8 @@ impl YamlBody {
 pub struct YamlJoint {
     pub joint_id: u32,
     pub kind: YamlJointKind,
+    #[serde(default)]
+    pub role: YamlJointRole,
     pub i: YamlMarker,
     pub j: YamlMarker,
 }
@@ -215,6 +218,7 @@ impl YamlJoint {
             JointId::new(self.joint_id),
             name,
             self.kind.into_joint_kind(),
+            self.role.into_joint_role(),
             i_marker,
             j_marker,
         ))
@@ -286,6 +290,25 @@ enum YamlJointDisplacement {
     RotX,
     RotY,
     RotZ,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum YamlJointRole {
+    #[default]
+    Auto,
+    Primary,
+    Secondary,
+}
+
+impl YamlJointRole {
+    pub fn into_joint_role(self) -> JointRole {
+        match self {
+            YamlJointRole::Auto => JointRole::Auto,
+            YamlJointRole::Primary => JointRole::Primary,
+            YamlJointRole::Secondary => JointRole::Secondary,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -439,22 +462,16 @@ pub enum YamlError {
     },
     #[error("body `{name}` references unknown hardpoint `{point}`")]
     UnknownHardpoint { name: String, point: String },
-
     #[error("marker `{name}` references unknown hardpoint `{point}`")]
     UnknownMarkerHardpoint { name: String, point: String },
-
     #[error("marker `{name}` references unknown body '{body_id}`")]
     UnknownJointBody { name: String, body_id: u32 },
-
     #[error("body `{name}` uses reserved body ID 0; ground is implicit")]
     ExplicitGround { name: String },
-
     #[error("motion `{name}` has empty displacement: {{}}")]
     EmptyMotionDisplacement { name: String },
-
     #[error("non-finite value `{value}` at `{path}`")]
     NonFinite { path: String, value: f64 },
-
     #[error(transparent)]
     Model(#[from] ModelBuildError),
 }
@@ -478,11 +495,14 @@ pub fn parse_yaml_file(path: impl AsRef<Path>) -> Result<YamlInput, YamlError> {
 mod tests {
     use super::*;
 
+    const VALID_ONE_BODY_PARSE_INPUT: &str =
+        include_str!("../../../tests/fixtures/spherical_one_body_parse.yaml");
+    const VALID_TWO_BODY_PARSE_INPUT: &str =
+        include_str!("../../../tests/fixtures/spherical_two_body_parse.yaml");
+
     #[test]
     fn converts_spherical_one_body_parse_into_model() -> Result<(), YamlError> {
-        let input = include_str!("../../../tests/fixtures/spherical_one_body_parse.yaml");
-
-        let input = parse_yaml_str(input)?.into_input()?;
+        let input = parse_yaml_str(VALID_ONE_BODY_PARSE_INPUT)?.into_input()?;
         let model = input.model();
 
         assert_eq!(model.bodies().iter().count(), 2);
@@ -509,9 +529,8 @@ mod tests {
 
     #[test]
     fn converts_spherical_two_body_parse_into_model() -> Result<(), YamlError> {
-        let input = include_str!("../../../tests/fixtures/spherical_two_body_parse.yaml");
+        let input = parse_yaml_str(VALID_TWO_BODY_PARSE_INPUT)?.into_input()?;
 
-        let input = parse_yaml_str(input)?.into_input()?;
         let model = input.model();
 
         assert_eq!(model.bodies().iter().count(), 3);
@@ -549,9 +568,7 @@ mod tests {
 
     #[test]
     fn converts_missing_motions_into_empty_input() -> Result<(), YamlError> {
-        let input = include_str!("../../../tests/fixtures/spherical_one_body_parse.yaml");
-
-        let input = parse_yaml_str(input)?.into_input()?;
+        let input = parse_yaml_str(VALID_ONE_BODY_PARSE_INPUT)?.into_input()?;
 
         assert!(input.motions().is_empty());
 
@@ -584,7 +601,7 @@ mod tests {
 
     #[test]
     fn rejects_unknown_fields_with_context() {
-        let valid = include_str!("../../../tests/fixtures/spherical_one_body_parse.yaml");
+        let valid = VALID_ONE_BODY_PARSE_INPUT;
         let motion = include_str!("../../../tests/fixtures/spherical_two_body_motion.yaml");
         let cases = [
             (
@@ -651,21 +668,20 @@ mod tests {
 
     #[test]
     fn rejects_joint_nesting() {
+        let input = VALID_ONE_BODY_PARSE_INPUT.replace("  J1:", "  primary:");
+
         for section in ["primary", "secondary"] {
             let yaml = format!("hardpoints: {{}}\njoints:\n  {section}:\n    J1: {{}}\n");
 
             assert!(matches!(parse_yaml_str(&yaml), Err(YamlError::Parse(_))));
         }
 
-        let canonical = include_str!("../../../tests/fixtures/spherical_one_body_parse.yaml")
-            .replace("  J1:", "  primary:");
-
-        assert!(parse_yaml_str(&canonical).is_ok());
+        assert!(parse_yaml_str(&input).is_ok());
     }
 
     #[test]
     fn rejects_unsupported_features_with_context() {
-        let valid = include_str!("../../../tests/fixtures/spherical_one_body_parse.yaml");
+        let valid = VALID_ONE_BODY_PARSE_INPUT;
         let motion = include_str!("../../../tests/fixtures/spherical_two_body_motion.yaml");
         let cases = [
             (
@@ -695,7 +711,7 @@ mod tests {
 
     #[test]
     fn rejects_non_finite_components() {
-        let valid = include_str!("../../../tests/fixtures/spherical_one_body_parse.yaml");
+        let valid = VALID_ONE_BODY_PARSE_INPUT;
         let motion = format!(
             "{valid}\nmotions:\n  RotateJ1:\n    kind: joint-coordinates\n    joint_id: 1\n    displacement:\n      rot_x: .nan\n"
         );
@@ -746,7 +762,7 @@ mod tests {
 
     #[test]
     fn rejects_explicit_empty_motion_displacement() {
-        let valid = include_str!("../../../tests/fixtures/spherical_one_body_parse.yaml");
+        let valid = VALID_ONE_BODY_PARSE_INPUT;
         let yaml = format!(
             "{valid}\nmotions:\n  RotateJ1:\n    kind: joint-coordinates\n    joint_id: 1\n    displacement: {{}}\n"
         );
@@ -761,7 +777,7 @@ mod tests {
 
     #[test]
     fn converts_rotated_body_geometry_to_local_frame() -> Result<(), YamlError> {
-        let input = include_str!("../../../tests/fixtures/spherical_one_body_parse.yaml")
+        let input = VALID_ONE_BODY_PARSE_INPUT
             .replace("P1: [0.0, 0.0, 0.0]", "P1: [1.0, 0.0, 0.0]")
             .replace("position: [0.0, 0.0, -100.0]", "position: [0.0, 0.0, 0.0]")
             .replacen("euler_angles: [0, 0, 0]", "euler_angles: [90, 0, 0]", 1);
@@ -791,11 +807,7 @@ mod tests {
 
     #[test]
     fn rejects_unknown_marker_hardpoint() -> Result<(), YamlError> {
-        let input = include_str!("../../../tests/fixtures/spherical_one_body_parse.yaml").replacen(
-            "position: P1",
-            "position: missing",
-            1,
-        );
+        let input = VALID_ONE_BODY_PARSE_INPUT.replacen("position: P1", "position: missing", 1);
 
         let result = parse_yaml_str(&input)?.into_input();
 
@@ -810,8 +822,8 @@ mod tests {
 
     #[test]
     fn rejects_unknown_body_hardpoint() -> Result<(), YamlError> {
-        let input = include_str!("../../../tests/fixtures/spherical_one_body_parse.yaml")
-            .replace("points_on_body: [P1]", "points_on_body: [missing]");
+        let input =
+            VALID_ONE_BODY_PARSE_INPUT.replace("points_on_body: [P1]", "points_on_body: [missing]");
 
         let result = parse_yaml_str(&input)?.into_input();
 
@@ -826,11 +838,7 @@ mod tests {
 
     #[test]
     fn rejects_unknown_marker_body() -> Result<(), YamlError> {
-        let input = include_str!("../../../tests/fixtures/spherical_one_body_parse.yaml").replacen(
-            "body_id: 0",
-            "body_id: 99",
-            1,
-        );
+        let input = VALID_ONE_BODY_PARSE_INPUT.replacen("body_id: 0", "body_id: 99", 1);
 
         let result = parse_yaml_str(&input)?.into_input();
 
@@ -844,11 +852,7 @@ mod tests {
 
     #[test]
     fn rejects_explicit_ground_body() -> Result<(), YamlError> {
-        let input = include_str!("../../../tests/fixtures/spherical_one_body_parse.yaml").replacen(
-            "body_id: 1",
-            "body_id: 0",
-            1,
-        );
+        let input = VALID_ONE_BODY_PARSE_INPUT.replacen("body_id: 1", "body_id: 0", 1);
 
         let result = parse_yaml_str(&input)?.into_input();
 
@@ -862,7 +866,7 @@ mod tests {
 
     #[test]
     fn rejects_missing_fields_malformed_vectors_and_invalid_enums() {
-        let valid = include_str!("../../../tests/fixtures/spherical_one_body_parse.yaml");
+        let valid = VALID_ONE_BODY_PARSE_INPUT;
         let invalid_inputs = [
             valid.replace("    side: single\n", ""),
             valid.replace("position: [0.0, 0.0, -100.0]", "position: [0.0, 0.0]"),
@@ -874,14 +878,59 @@ mod tests {
     }
 
     #[test]
-    fn converts_inline_marker_position() -> Result<(), YamlError> {
-        let input = include_str!("../../../tests/fixtures/spherical_one_body_parse.yaml").replacen(
-            "position: P1",
-            "position: [1.0, 2.0, 3.0]",
+    fn rejects_unknown_joint_role() {
+        let valid = VALID_ONE_BODY_PARSE_INPUT;
+
+        let yaml = valid.replacen(
+            "    kind: spherical\n",
+            "    kind: spherical\n    role: invalid\n",
             1,
         );
 
-        let input = parse_yaml_str(&input)?.into_input()?;
+        let error = parse_yaml_str(&yaml).unwrap_err();
+
+        assert!(matches!(error, YamlError::Parse(_)));
+
+        let message = error.to_string();
+
+        assert!(message.contains("joints.J1"), "{message}");
+        assert!(message.contains("invalid"), "{message}");
+    }
+
+    #[test]
+    fn converts_joint_roles() -> Result<(), YamlError> {
+        let cases = [
+            (None, JointRole::Auto),
+            (Some("auto"), JointRole::Auto),
+            (Some("primary"), JointRole::Primary),
+            (Some("secondary"), JointRole::Secondary),
+        ];
+
+        for (role, expected) in cases {
+            let yaml = match role {
+                None => VALID_ONE_BODY_PARSE_INPUT.to_owned(),
+                Some(role) => VALID_ONE_BODY_PARSE_INPUT.replacen(
+                    "    kind: spherical\n",
+                    &format!("    kind: spherical\n    role: {role}\n"),
+                    1,
+                ),
+            };
+
+            let input = parse_yaml_str(&yaml)?.into_input()?;
+            let actual = input.model().joints().iter().next().unwrap().role();
+
+            assert_eq!(actual, expected);
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn converts_inline_marker_position() -> Result<(), YamlError> {
+        let valid =
+            VALID_ONE_BODY_PARSE_INPUT.replacen("position: P1", "position: [1.0, 2.0, 3.0]", 1);
+
+        let input = parse_yaml_str(&valid)?.into_input()?;
         let model = input.model();
         let joint = model.joints().iter().next().unwrap();
 

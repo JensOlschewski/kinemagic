@@ -47,6 +47,10 @@ joints:
   J1:
     joint_id: 1
     kind: spherical
+    # defines which topology the joint belongs to
+    # role can be define explicitly by auto|primary|secondary
+    # defaulting to auto if ommited
+    role: auto
     i:
       body_id: 0
       position: P1
