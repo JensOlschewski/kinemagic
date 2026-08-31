@@ -273,6 +273,7 @@ mod tests {
             JointId::new(1),
             "joint",
             JointKind::Spherical,
+            JointRole::Auto,
             marker(BodyId::GROUND, Vector3::zeros()),
             Marker::new(
                 "j",
@@ -312,6 +313,7 @@ mod tests {
             JointId::new(1),
             "joint",
             JointKind::Spherical,
+            JointRole::Auto,
             marker(BodyId::GROUND, Vector3::zeros()),
             marker(BodyId::new(1), child_marker_position),
         )])

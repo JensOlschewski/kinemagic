@@ -197,6 +197,7 @@ pub struct Joint {
     id: JointId,
     name: String,
     kind: JointKind,
+    role: JointRole,
     i_marker: Marker,
     j_marker: Marker,
 }
@@ -206,6 +207,7 @@ impl Joint {
         id: JointId,
         name: impl Into<String>,
         kind: JointKind,
+        role: JointRole,
         i_marker: Marker,
         j_marker: Marker,
     ) -> Self {
@@ -213,6 +215,7 @@ impl Joint {
             id,
             name: name.into(),
             kind,
+            role,
             i_marker,
             j_marker,
         }
@@ -228,6 +231,10 @@ impl Joint {
 
     pub fn kind(&self) -> JointKind {
         self.kind
+    }
+
+    pub fn role(&self) -> JointRole {
+        self.role
     }
 
     pub fn i_marker(&self) -> &Marker {
@@ -343,6 +350,13 @@ impl Point {
 #[non_exhaustive]
 pub enum JointKind {
     Spherical,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum JointRole {
+    Auto,
+    Primary,
+    Secondary,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -470,6 +484,7 @@ mod tests {
             JointId::new(1),
             "joint",
             JointKind::Spherical,
+            JointRole::Auto,
             i_marker,
             j_marker,
         );
@@ -727,6 +742,7 @@ mod tests {
             id,
             name,
             JointKind::Spherical,
+            JointRole::Auto,
             marker("i", i_body),
             marker("j", j_body),
         )

@@ -124,7 +124,7 @@ mod tests {
     use nalgebra::{UnitQuaternion, Vector3};
 
     use super::*;
-    use crate::model::{Bodies, Body, Joint, JointKind, Joints, Marker};
+    use crate::model::*;
 
     #[test]
     fn builds_ground_only_tree() {
@@ -256,6 +256,7 @@ mod tests {
             JointId::new(id),
             format!("joint {id}"),
             JointKind::Spherical,
+            JointRole::Auto,
             marker("i", BodyId::new(parent_id)),
             marker("j", BodyId::new(child_id)),
         )
