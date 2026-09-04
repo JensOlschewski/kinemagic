@@ -1,19 +1,20 @@
-mod coordinates;
-mod tree;
+pub mod coordinates;
+pub mod tree;
 
 use nalgebra::UnitQuaternion;
 use thiserror::Error;
 
 use crate::model::{BodyId, Input, JointId, Model};
 use coordinates::resolve_joint_coordinates;
-use tree::build_kinematic_tree;
+pub use tree::{TraversalDirection, build_kinematic_topology};
 
 pub use coordinates::{JointCoordinate, JointCoordinateError};
-pub use tree::KinematicTreeError;
+pub use tree::KinematicTopologyError;
 
 pub struct PreparedProblem {
     input: Input,
-    steps: Vec<PreparedStep>,
+    tree_edges: Vec<PreparedTreeEdge>,
+    closure_joint_ids: Vec<JointId>,
 }
 
 impl PreparedProblem {
@@ -21,26 +22,31 @@ impl PreparedProblem {
         self.input.model()
     }
 
-    pub fn steps(&self) -> &[PreparedStep] {
-        &self.steps
+    pub fn tree_edges(&self) -> &[PreparedTreeEdge] {
+        &self.tree_edges
+    }
+
+    pub fn closure_joint_ids(&self) -> &[JointId] {
+        &self.closure_joint_ids
     }
 }
 
 #[derive(Debug)]
-pub struct PreparedStep {
-    parent_id: BodyId,
-    child_id: BodyId,
+pub struct PreparedTreeEdge {
+    parent_body_id: BodyId,
+    child_body_id: BodyId,
     joint_id: JointId,
     joint_coordinate: JointCoordinate,
+    direction: TraversalDirection,
 }
 
-impl PreparedStep {
-    pub fn parent_id(&self) -> BodyId {
-        self.parent_id
+impl PreparedTreeEdge {
+    pub fn parent_body_id(&self) -> BodyId {
+        self.parent_body_id
     }
 
-    pub fn child_id(&self) -> BodyId {
-        self.child_id
+    pub fn child_body_id(&self) -> BodyId {
+        self.child_body_id
     }
 
     pub fn joint_id(&self) -> JointId {
@@ -51,39 +57,49 @@ impl PreparedStep {
         self.joint_coordinate
     }
 
+    pub fn direction(&self) -> TraversalDirection {
+        self.direction
+    }
+
     pub fn relative_orientation(&self) -> UnitQuaternion<f64> {
         self.joint_coordinate.relative_orientation()
     }
 }
 
 pub fn prepare(input: Input) -> Result<PreparedProblem, PrepareError> {
-    let tree = build_kinematic_tree(input.model())?;
+    let topology = build_kinematic_topology(input.model())?;
     let coordinates = resolve_joint_coordinates(&input)?;
-    let steps = tree
-        .steps()
+
+    let tree_edges = topology
+        .tree_edges()
         .iter()
-        .map(|step| {
+        .map(|tree_edge| {
             let coordinate = coordinates
-                .get(step.joint_id)
+                .get(tree_edge.joint_id())
                 .expect("prepared topology references a model joint");
 
-            PreparedStep {
-                parent_id: step.parent_id,
-                child_id: step.child_id,
-                joint_id: step.joint_id,
+            PreparedTreeEdge {
+                parent_body_id: tree_edge.parent_body_id(),
+                child_body_id: tree_edge.child_body_id(),
+                joint_id: tree_edge.joint_id(),
                 joint_coordinate: *coordinate,
+                direction: tree_edge.direction(),
             }
         })
         .collect();
 
-    Ok(PreparedProblem { input, steps })
+    Ok(PreparedProblem {
+        input,
+        tree_edges,
+        closure_joint_ids: topology.closure_joint_ids().to_vec(),
+    })
 }
 
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum PrepareError {
     #[error(transparent)]
-    Topology(#[from] KinematicTreeError),
+    Topology(#[from] KinematicTopologyError),
     #[error(transparent)]
     Coordinates(#[from] JointCoordinateError),
 }

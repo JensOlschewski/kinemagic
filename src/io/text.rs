@@ -79,7 +79,7 @@ mod tests {
         );
 
         let problem = prepare(input).unwrap();
-        let output = render_body_poses(&solve(&problem));
+        let output = render_body_poses(&solve(&problem).unwrap());
 
         assert_eq!(
             output,

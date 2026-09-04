@@ -11,13 +11,13 @@ fn prepares_ordered_steps_with_resolved_coordinates() {
     let problem = prepare(input).unwrap();
 
     assert_eq!(problem.model().bodies().iter().count(), 3);
-    assert_eq!(problem.steps().len(), 2);
-    assert_eq!(problem.steps()[0].parent_id(), BodyId::GROUND);
-    assert_eq!(problem.steps()[0].child_id(), BodyId::new(1));
-    assert_eq!(problem.steps()[0].joint_id(), JointId::new(1));
-    assert_eq!(problem.steps()[1].parent_id(), BodyId::new(1));
-    assert_eq!(problem.steps()[1].child_id(), BodyId::new(2));
-    assert_eq!(problem.steps()[1].joint_id(), JointId::new(2));
+    assert_eq!(problem.tree_edges().len(), 2);
+    assert_eq!(problem.tree_edges()[0].parent_body_id(), BodyId::GROUND);
+    assert_eq!(problem.tree_edges()[0].child_body_id(), BodyId::new(1));
+    assert_eq!(problem.tree_edges()[0].joint_id(), JointId::new(1));
+    assert_eq!(problem.tree_edges()[1].parent_body_id(), BodyId::new(1));
+    assert_eq!(problem.tree_edges()[1].child_body_id(), BodyId::new(2));
+    assert_eq!(problem.tree_edges()[1].joint_id(), JointId::new(2));
 
     let expected_joint_1 =
         UnitQuaternion::from_axis_angle(&Vector3::x_axis(), std::f64::consts::FRAC_PI_2);
@@ -25,13 +25,13 @@ fn prepares_ordered_steps_with_resolved_coordinates() {
         UnitQuaternion::from_axis_angle(&Vector3::z_axis(), std::f64::consts::FRAC_PI_2);
 
     assert!(
-        problem.steps()[0]
+        problem.tree_edges()[0]
             .relative_orientation()
             .angle_to(&expected_joint_1)
             < 1.0e-12
     );
     assert!(
-        problem.steps()[1]
+        problem.tree_edges()[1]
             .relative_orientation()
             .angle_to(&expected_joint_2)
             < 1.0e-12
@@ -56,9 +56,9 @@ fn yaml_name_order_does_not_change_prepared_steps() {
 
     let step_ids = |problem: &kinemagic::problem::PreparedProblem| {
         problem
-            .steps()
+            .tree_edges()
             .iter()
-            .map(|step| (step.parent_id(), step.child_id(), step.joint_id()))
+            .map(|step| (step.parent_body_id(), step.child_body_id(), step.joint_id()))
             .collect::<Vec<_>>()
     };
 

@@ -30,17 +30,28 @@ pub struct Model {
 impl Model {
     pub fn new(bodies: Bodies, joints: Joints) -> Result<Self, ModelBuildError> {
         for joint in joints.iter() {
-            if !bodies.contains(joint.i_marker.body_id) {
+            let joint_id = joint.id();
+            let i_body_id = joint.i_marker().body_id();
+            let j_body_id = joint.j_marker().body_id();
+
+            if !bodies.contains(i_body_id) {
                 return Err(ModelBuildError::InvalidJointReference {
-                    joint_id: joint.id,
-                    body_id: joint.i_marker.body_id,
+                    joint_id,
+                    body_id: i_body_id,
                 });
             }
 
-            if !bodies.contains(joint.j_marker.body_id) {
+            if !bodies.contains(j_body_id) {
                 return Err(ModelBuildError::InvalidJointReference {
-                    joint_id: joint.id,
-                    body_id: joint.j_marker.body_id,
+                    joint_id,
+                    body_id: j_body_id,
+                });
+            }
+
+            if i_body_id == j_body_id {
+                return Err(ModelBuildError::SelfConnectingJoint {
+                    joint_id,
+                    body_id: i_body_id,
                 });
             }
         }
@@ -421,6 +432,8 @@ pub enum ModelBuildError {
     DuplicateJointId(JointId),
     #[error("body `{0:?}` is not connected to ground")]
     FreeBody(BodyId),
+    #[error("joint `{joint_id:?}` connects body `{body_id:?}` to itself")]
+    SelfConnectingJoint { joint_id: JointId, body_id: BodyId },
 }
 
 #[cfg(test)]
@@ -492,6 +505,7 @@ mod tests {
         assert_eq!(joint.id(), JointId::new(1));
         assert_eq!(joint.name(), "joint");
         assert_eq!(joint.kind(), JointKind::Spherical);
+        assert_eq!(joint.role(), JointRole::Auto);
         assert_eq!(joint.i_marker().body_id(), i_body);
         assert_eq!(joint.j_marker().body_id(), j_body);
         assert_eq!(joint.i_marker().name(), "i-marker");
@@ -718,6 +732,34 @@ mod tests {
             model,
             Err(ModelBuildError::FreeBody(id))
                 if id == BodyId::new(1)
+        ));
+
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_self_connecting_joint() -> Result<(), ModelBuildError> {
+        let bodies = Bodies::new(vec![
+            body(BodyId::GROUND, "ground"),
+            body(BodyId::new(1), "body"),
+        ])?;
+
+        let joints = Joints::new(vec![joint(
+            JointId::new(1),
+            "joint_1",
+            BodyId::new(1),
+            BodyId::new(1),
+        )])?;
+
+        let model = Model::new(bodies, joints);
+
+        assert!(matches!(
+            model,
+            Err(ModelBuildError::SelfConnectingJoint {
+                joint_id,
+                body_id,
+            }) if joint_id == JointId::new(1)
+                && body_id == BodyId::new(1)
         ));
 
         Ok(())
