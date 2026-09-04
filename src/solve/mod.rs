@@ -1,8 +1,9 @@
 use crate::model::{BodyId, Marker};
-use crate::problem::PreparedProblem;
+use crate::problem::{PreparedProblem, tree::TraversalDirection};
 use std::collections::BTreeMap;
 
 use nalgebra::{UnitQuaternion, Vector3};
+use thiserror::Error;
 
 pub struct BodyPoses {
     poses: BTreeMap<BodyId, BodyPose>,
@@ -18,7 +19,11 @@ impl BodyPoses {
     }
 }
 
-pub fn solve(problem: &PreparedProblem) -> BodyPoses {
+pub fn solve(problem: &PreparedProblem) -> Result<BodyPoses, SolverError> {
+    if !problem.closure_joint_ids().is_empty() {
+        return Err(SolverError::ClosedLoopsUnsupported);
+    }
+
     let mut poses = BTreeMap::new();
 
     poses.insert(
@@ -26,28 +31,36 @@ pub fn solve(problem: &PreparedProblem) -> BodyPoses {
         BodyPose::new(Vector3::zeros(), UnitQuaternion::identity()),
     );
 
-    for step in problem.steps() {
+    for edge in problem.tree_edges() {
         let joint = problem
             .model()
             .joints()
-            .get(step.joint_id())
+            .get(edge.joint_id())
             .expect("PreparedProblem contains missing joint");
 
         let parent = poses
-            .get(&step.parent_id())
+            .get(&edge.parent_body_id())
             .expect("PreparedProblem contains unsolved parent");
 
-        let child = spherical_child_pose(
-            parent,
-            joint.i_marker(),
-            joint.j_marker(),
-            step.relative_orientation(),
-        );
+        let child = match edge.direction() {
+            TraversalDirection::IToJ => spherical_child_pose(
+                parent,
+                joint.i_marker(),
+                joint.j_marker(),
+                edge.relative_orientation(),
+            ),
+            TraversalDirection::JToI => spherical_child_pose(
+                parent,
+                joint.j_marker(),
+                joint.i_marker(),
+                edge.relative_orientation().inverse(),
+            ),
+        };
 
-        poses.insert(step.child_id(), child);
+        poses.insert(edge.child_body_id(), child);
     }
 
-    BodyPoses { poses }
+    Ok(BodyPoses { poses })
 }
 
 pub struct BodyPose {
@@ -96,6 +109,13 @@ pub fn spherical_child_pose(
         parent.marker_position(i_marker) - child_orientation.transform_vector(&j_marker.position());
 
     BodyPose::new(child_position, child_orientation)
+}
+
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum SolverError {
+    #[error("closed-loop mechanisms are not supported by the solver yet")]
+    ClosedLoopsUnsupported,
 }
 
 #[cfg(test)]

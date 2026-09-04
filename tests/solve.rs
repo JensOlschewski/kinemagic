@@ -1,6 +1,6 @@
 use kinemagic::io::yaml::parse_yaml_str;
 use kinemagic::model::{BodyId, JointId};
-use kinemagic::problem::{PreparedProblem, prepare};
+use kinemagic::problem::{PreparedProblem, TraversalDirection, prepare};
 use kinemagic::solve::{BodyPose, BodyPoses, solve};
 use nalgebra::{UnitQuaternion, Vector3};
 
@@ -10,9 +10,10 @@ const TOLERANCE: f64 = 1.0e-12;
 fn solves_ground_only_problem() {
     let problem = prepared("hardpoints: {}\n");
 
-    let poses = solve(&problem);
+    let poses = solve(&problem).unwrap();
 
     assert_eq!(poses.iter().count(), 1);
+
     assert_pose_close(
         poses.get(BodyId::GROUND).unwrap(),
         Vector3::zeros(),
@@ -37,7 +38,7 @@ fn reproduces_one_body_reference_with_non_aligned_markers() {
             > 1.0e-3
     );
 
-    let poses = solve(&problem);
+    let poses = solve(&problem).unwrap();
 
     assert_reproduces_reference(&problem, &poses);
 }
@@ -52,14 +53,14 @@ fn solves_branching_reference_problem() {
 
     assert!(
         problem
-            .steps()
+            .tree_edges()
             .iter()
-            .all(|step| step.parent_id() == BodyId::GROUND)
+            .all(|step| step.parent_body_id() == BodyId::GROUND)
     );
 
     let poses = solve(&problem);
 
-    assert_reproduces_reference(&problem, &poses);
+    assert_reproduces_reference(&problem, &poses.unwrap());
 }
 
 #[test]
@@ -74,15 +75,15 @@ fn solves_reordered_chain_with_simultaneous_motions() {
         JointId::new(2)
     );
 
-    assert_eq!(problem.steps()[0].joint_id(), JointId::new(1));
+    assert_eq!(problem.tree_edges()[0].joint_id(), JointId::new(1));
 
-    let poses = solve(&problem);
+    let poses = solve(&problem).unwrap();
 
     assert_complete(&problem, &poses);
     assert_joint_constraints(&problem, &poses);
 
-    let first_orientation = problem.steps()[0].relative_orientation();
-    let second_orientation = problem.steps()[1].relative_orientation();
+    let first_orientation = problem.tree_edges()[0].relative_orientation();
+    let second_orientation = problem.tree_edges()[1].relative_orientation();
 
     assert_orientation_close(
         poses.get(BodyId::new(1)).unwrap().orientation(),
@@ -99,8 +100,8 @@ fn solves_reordered_chain_with_simultaneous_motions() {
 fn solving_is_repeatable_without_mutating_problem() {
     let problem = prepared(include_str!("fixtures/spherical_two_body_motion.yaml"));
 
-    let first = solve(&problem);
-    let second = solve(&problem);
+    let first = solve(&problem).unwrap();
+    let second = solve(&problem).unwrap();
 
     assert_complete(&problem, &first);
     assert_complete(&problem, &second);
@@ -111,6 +112,19 @@ fn solving_is_repeatable_without_mutating_problem() {
 
         assert_pose_close(a, b.position(), b.orientation());
     }
+}
+
+#[test]
+fn rejects_closed_loop_problem() {
+    let yaml = include_str!("../examples/spherical_one_body_closed_loop_motion.yaml");
+    let problem = prepared(yaml);
+
+    let result = solve(&problem);
+
+    assert!(matches!(
+        result,
+        Err(kinemagic::solve::SolverError::ClosedLoopsUnsupported)
+    ));
 }
 
 fn prepared(yaml: &str) -> PreparedProblem {
@@ -144,18 +158,33 @@ fn assert_complete(problem: &PreparedProblem, poses: &BodyPoses) {
 }
 
 fn assert_joint_constraints(problem: &PreparedProblem, poses: &BodyPoses) {
-    for step in problem.steps() {
-        let joint = problem.model().joints().get(step.joint_id()).unwrap();
-        let parent = poses.get(step.parent_id()).unwrap();
-        let child = poses.get(step.child_id()).unwrap();
+    for edge in problem.tree_edges() {
+        let joint = problem.model().joints().get(edge.joint_id()).unwrap();
+        let parent = poses.get(edge.parent_body_id()).unwrap();
+        let child = poses.get(edge.child_body_id()).unwrap();
+
+        let (parent_marker, child_marker, relative_orientation) = match edge.direction() {
+            TraversalDirection::IToJ => (
+                joint.i_marker(),
+                joint.j_marker(),
+                edge.relative_orientation(),
+            ),
+
+            TraversalDirection::JToI => (
+                joint.j_marker(),
+                joint.i_marker(),
+                edge.relative_orientation().inverse(),
+            ),
+        };
 
         assert_position_close(
-            parent.marker_position(joint.i_marker()),
-            child.marker_position(joint.j_marker()),
+            parent.marker_position(parent_marker),
+            child.marker_position(child_marker),
         );
+
         assert_orientation_close(
-            child.marker_orientation(joint.j_marker()),
-            parent.marker_orientation(joint.i_marker()) * step.relative_orientation(),
+            child.marker_orientation(child_marker),
+            parent.marker_orientation(parent_marker) * relative_orientation,
         );
     }
 }

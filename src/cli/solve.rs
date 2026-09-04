@@ -6,7 +6,7 @@ use kinemagic::solve::solve as solve_problem;
 
 pub fn run(args: SolveArgs) -> Result<(), Box<dyn std::error::Error>> {
     let problem = load_and_prepare(&args.input)?;
-    let poses = solve_problem(&problem);
+    let poses = solve_problem(&problem)?;
     let output = render_body_poses(&poses);
 
     io::stdout().lock().write_all(output.as_bytes())?;
