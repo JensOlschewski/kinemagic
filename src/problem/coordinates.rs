@@ -1,12 +1,12 @@
 use crate::model::{Input, JointDisplacement, JointId};
-use nalgebra::{UnitQuaternion, Vector3};
+use nalgebra::{Matrix3, UnitQuaternion, Vector3};
 use std::collections::BTreeMap;
 use thiserror::Error;
 
 const REFERENCE_POSITION_TOLERANCE: f64 = 1.0e-9;
 
 #[derive(Debug)]
-pub(super) struct JointCoordinates {
+pub struct JointCoordinates {
     values: BTreeMap<JointId, JointCoordinate>,
 }
 
@@ -38,22 +38,70 @@ impl JointCoordinate {
         &self.displacement
     }
 
+    /// Returns the relative orientation resulting from the prescribed
+    /// rotational displacement.
+    ///
+    /// Unprescribed rotation components are assumed to be zero.
     pub fn relative_orientation(&self) -> UnitQuaternion<f64> {
-        let rotation = self.displacement.rotation();
+        self.relative_orientation_for(Vector3::zeros())
+    }
 
-        let delta = Vector3::new(
-            rotation.x.unwrap_or(0.0),
-            rotation.y.unwrap_or(0.0),
-            rotation.z.unwrap_or(0.0),
-        );
+    pub fn relative_orientation_for(&self, candidate: Vector3<f64>) -> UnitQuaternion<f64> {
+        UnitQuaternion::from_scaled_axis(self.resolve_displacement(candidate))
+            * self.reference_orientation
+    }
 
-        UnitQuaternion::from_scaled_axis(delta) * self.reference_orientation
+    /// Resolves the joint displacement.
+    ///
+    /// Components prescribed by the joint override the corresponding components
+    /// of `candidate`. Unprescribed components are taken from `candidate`.
+    pub fn resolve_displacement(&self, candidate: Vector3<f64>) -> Vector3<f64> {
+        let prescribed = self.displacement.rotation();
+
+        Vector3::new(
+            prescribed.x.unwrap_or(candidate.x),
+            prescribed.y.unwrap_or(candidate.y),
+            prescribed.z.unwrap_or(candidate.z),
+        )
+    }
+
+    pub fn relative_angular_velocity(
+        &self,
+        displacement: Vector3<f64>,
+        displacement_rate: Vector3<f64>,
+    ) -> Vector3<f64> {
+        let angle = displacement.norm();
+        let skew = displacement.cross_matrix();
+        let skew_squared = skew * skew;
+
+        let (first, second) = if angle < 1.0e-8 {
+            (
+                0.5 - angle.powi(2) / 24.0,
+                1.0 / 6.0 - angle.powi(2) / 120.0,
+            )
+        } else {
+            (
+                (1.0 - angle.cos()) / angle.powi(2),
+                (angle - angle.sin()) / angle.powi(3),
+            )
+        };
+
+        (Matrix3::identity() + first * skew + second * skew_squared) * displacement_rate
+    }
+
+    pub fn reverse_relative_angular_velocity(
+        &self,
+        displacement: Vector3<f64>,
+        displacement_rate: Vector3<f64>,
+    ) -> Vector3<f64> {
+        let forward = self.relative_angular_velocity(displacement, displacement_rate);
+        let orientation = self.relative_orientation_for(displacement);
+
+        -orientation.inverse_transform_vector(&forward)
     }
 }
 
-pub(super) fn resolve_joint_coordinates(
-    input: &Input,
-) -> Result<JointCoordinates, JointCoordinateError> {
+pub fn resolve_joint_coordinates(input: &Input) -> Result<JointCoordinates, JointCoordinateError> {
     let mut motions_by_joint = BTreeMap::new();
     let joints = input.model().joints();
 
@@ -300,6 +348,60 @@ mod tests {
         let expected = delta_orientation * reference_orientation;
 
         assert!(actual.angle_to(&expected) < 1.0e-12);
+    }
+
+    #[test]
+    fn maps_scaled_axis_rate_to_angular_velocity() {
+        let coordinate = JointCoordinate::new(
+            UnitQuaternion::identity(),
+            JointDisplacement::new(Vector3::new(None, None, None)),
+        );
+        let displacement = Vector3::new(0.4, -0.3, 0.2);
+        let displacement_rate = Vector3::new(-0.2, 0.5, 0.7);
+        let angular_velocity =
+            coordinate.relative_angular_velocity(displacement, displacement_rate);
+        let step = 1.0e-7;
+        let forward = UnitQuaternion::from_scaled_axis(displacement + step * displacement_rate);
+        let backward = UnitQuaternion::from_scaled_axis(displacement - step * displacement_rate);
+        let finite_difference = (forward * backward.inverse()).scaled_axis() / (2.0 * step);
+
+        assert!((angular_velocity - finite_difference).norm() < 1.0e-9);
+    }
+
+    #[test]
+    fn maps_small_scaled_axis_rate_without_singularity() {
+        let coordinate = JointCoordinate::new(
+            UnitQuaternion::identity(),
+            JointDisplacement::new(Vector3::new(None, None, None)),
+        );
+        let displacement = Vector3::new(1.0e-10, -2.0e-10, 3.0e-10);
+        let displacement_rate = Vector3::new(0.4, -0.5, 0.6);
+
+        assert!(
+            (coordinate.relative_angular_velocity(displacement, displacement_rate)
+                - displacement_rate)
+                .norm()
+                < 1.0e-9
+        );
+    }
+
+    #[test]
+    fn resolves_prescribed_and_candidate_orientation_components() {
+        let reference_orientation = UnitQuaternion::from_scaled_axis(Vector3::new(0.1, 0.2, 0.3));
+        let coordinate = JointCoordinate::new(
+            reference_orientation,
+            JointDisplacement::new(Vector3::new(Some(0.4), None, Some(-0.6))),
+        );
+        let candidate = Vector3::new(1.0, 0.5, 2.0);
+        let expected = UnitQuaternion::from_scaled_axis(Vector3::new(0.4, 0.5, -0.6))
+            * reference_orientation;
+
+        assert!(
+            coordinate
+                .relative_orientation_for(candidate)
+                .angle_to(&expected)
+                < 1.0e-12
+        );
     }
 
     fn input(motions: Vec<Motion>, child_marker_position: Vector3<f64>) -> Input {
