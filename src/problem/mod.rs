@@ -1,7 +1,7 @@
 pub mod coordinates;
 pub mod tree;
 
-use nalgebra::UnitQuaternion;
+use nalgebra::{UnitQuaternion, Vector3};
 use thiserror::Error;
 
 use crate::model::{BodyId, Input, JointId, Model};
@@ -63,6 +63,30 @@ impl PreparedTreeEdge {
 
     pub fn relative_orientation(&self) -> UnitQuaternion<f64> {
         self.joint_coordinate.relative_orientation()
+    }
+
+    pub fn traversal_relative_orientation(&self, candidate: Vector3<f64>) -> UnitQuaternion<f64> {
+        let orientation = self.joint_coordinate.relative_orientation_for(candidate);
+
+        match self.direction {
+            TraversalDirection::IToJ => orientation,
+            TraversalDirection::JToI => orientation.inverse(),
+        }
+    }
+
+    pub fn traversal_relative_angular_velocity(
+        &self,
+        displacement: Vector3<f64>,
+        displacement_rate: Vector3<f64>,
+    ) -> Vector3<f64> {
+        match self.direction {
+            TraversalDirection::IToJ => self
+                .joint_coordinate
+                .relative_angular_velocity(displacement, displacement_rate),
+            TraversalDirection::JToI => self
+                .joint_coordinate
+                .reverse_relative_angular_velocity(displacement, displacement_rate),
+        }
     }
 }
 

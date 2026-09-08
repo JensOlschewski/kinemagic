@@ -42,20 +42,16 @@ pub fn solve(problem: &PreparedProblem) -> Result<BodyPoses, SolverError> {
             .get(&edge.parent_body_id())
             .expect("PreparedProblem contains unsolved parent");
 
-        let child = match edge.direction() {
-            TraversalDirection::IToJ => spherical_child_pose(
-                parent,
-                joint.i_marker(),
-                joint.j_marker(),
-                edge.relative_orientation(),
-            ),
-            TraversalDirection::JToI => spherical_child_pose(
-                parent,
-                joint.j_marker(),
-                joint.i_marker(),
-                edge.relative_orientation().inverse(),
-            ),
+        let (parent_marker, child_marker) = match edge.direction() {
+            TraversalDirection::IToJ => (joint.i_marker(), joint.j_marker()),
+            TraversalDirection::JToI => (joint.j_marker(), joint.i_marker()),
         };
+        let child = spherical_child_pose(
+            parent,
+            parent_marker,
+            child_marker,
+            edge.traversal_relative_orientation(Vector3::zeros()),
+        );
 
         poses.insert(edge.child_body_id(), child);
     }

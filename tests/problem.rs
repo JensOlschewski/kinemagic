@@ -66,6 +66,62 @@ fn yaml_name_order_does_not_change_prepared_steps() {
 }
 
 #[test]
+fn exposes_traversal_direction_for_reversed_edge_rates() {
+    let input = parse_yaml_str(
+        r#"hardpoints:
+  P1: [0.0, 0.0, 0.0]
+bodies:
+  B1:
+    body_id: 1
+    side: single
+    position: [0.0, 0.0, 0.0]
+    orientation:
+      method: euler
+      euler_angles: [0, 0, 0]
+    points_on_body: [P1]
+joints:
+  J1:
+    joint_id: 1
+    kind: spherical
+    i:
+      body_id: 1
+      position: P1
+      orientation:
+        method: euler
+        euler_angles: [0, 0, 0]
+    j:
+      body_id: 0
+      position: P1
+      orientation:
+        method: euler
+        euler_angles: [0, 0, 0]
+"#,
+    )
+    .unwrap()
+    .into_input()
+    .unwrap();
+    let problem = prepare(input).unwrap();
+    let edge = &problem.tree_edges()[0];
+    let displacement = Vector3::new(0.4, -0.3, 0.2);
+    let displacement_rate = Vector3::new(-0.2, 0.5, 0.7);
+
+    assert_eq!(edge.direction(), kinemagic::problem::TraversalDirection::JToI);
+    assert!(
+        edge.traversal_relative_orientation(displacement)
+            .angle_to(&UnitQuaternion::from_scaled_axis(displacement).inverse())
+            < 1.0e-12
+    );
+    assert!(
+        (edge.traversal_relative_angular_velocity(displacement, displacement_rate)
+            - edge
+                .joint_coordinate()
+                .reverse_relative_angular_velocity(displacement, displacement_rate))
+        .norm()
+            < 1.0e-12
+    );
+}
+
+#[test]
 fn exposes_typed_preparation_errors() {
     let yaml = format!(
         "{}\nmotions:\n  Unknown:\n    kind: joint-coordinates\n    joint_id: 99\n    displacement:\n      rot_x: 90.0\n",
