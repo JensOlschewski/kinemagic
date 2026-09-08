@@ -99,6 +99,23 @@ impl JointCoordinate {
 
         -orientation.inverse_transform_vector(&forward)
     }
+
+    pub fn displacement_rate_from_relative_angular_velocity(
+        &self,
+        displacement: Vector3<f64>,
+        angular_velocity: Vector3<f64>,
+    ) -> Vector3<f64> {
+        let angle = displacement.norm();
+        let skew = displacement.cross_matrix();
+        let skew_squared = skew * skew;
+        let second = if angle < 1.0e-8 {
+            1.0 / 12.0 + angle.powi(2) / 720.0
+        } else {
+            1.0 / angle.powi(2) - 1.0 / (2.0 * angle) * (angle / 2.0).cos() / (angle / 2.0).sin()
+        };
+
+        (Matrix3::identity() - 0.5 * skew + second * skew_squared) * angular_velocity
+    }
 }
 
 pub fn resolve_joint_coordinates(input: &Input) -> Result<JointCoordinates, JointCoordinateError> {
@@ -393,8 +410,8 @@ mod tests {
             JointDisplacement::new(Vector3::new(Some(0.4), None, Some(-0.6))),
         );
         let candidate = Vector3::new(1.0, 0.5, 2.0);
-        let expected = UnitQuaternion::from_scaled_axis(Vector3::new(0.4, 0.5, -0.6))
-            * reference_orientation;
+        let expected =
+            UnitQuaternion::from_scaled_axis(Vector3::new(0.4, 0.5, -0.6)) * reference_orientation;
 
         assert!(
             coordinate
