@@ -13,6 +13,7 @@ pub use tree::KinematicTopologyError;
 
 pub struct PreparedProblem {
     input: Input,
+    joint_coordinates: coordinates::JointCoordinates,
     tree_edges: Vec<PreparedTreeEdge>,
     closure_joint_ids: Vec<JointId>,
 }
@@ -28,6 +29,29 @@ impl PreparedProblem {
 
     pub fn closure_joint_ids(&self) -> &[JointId] {
         &self.closure_joint_ids
+    }
+
+    pub fn joint_coordinate(&self, joint_id: JointId) -> Option<&JointCoordinate> {
+        self.joint_coordinates.get(joint_id)
+    }
+
+    pub fn free_primary_coordinates(&self) -> Vec<(JointId, usize)> {
+        self.tree_edges
+            .iter()
+            .flat_map(|edge| {
+                edge.joint_coordinate()
+                    .free_component_indices()
+                    .into_iter()
+                    .map(move |component| (edge.joint_id(), component))
+            })
+            .collect()
+    }
+
+    pub fn primary_coordinates(&self) -> Vec<(JointId, usize)> {
+        self.tree_edges
+            .iter()
+            .flat_map(|edge| (0..3).map(move |component| (edge.joint_id(), component)))
+            .collect()
     }
 }
 
@@ -114,6 +138,7 @@ pub fn prepare(input: Input) -> Result<PreparedProblem, PrepareError> {
 
     Ok(PreparedProblem {
         input,
+        joint_coordinates: coordinates,
         tree_edges,
         closure_joint_ids: topology.closure_joint_ids().to_vec(),
     })

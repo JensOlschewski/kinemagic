@@ -38,6 +38,16 @@ impl JointCoordinate {
         &self.displacement
     }
 
+    pub fn free_component_indices(&self) -> Vec<usize> {
+        let rotation = self.displacement.rotation();
+
+        [rotation.x, rotation.y, rotation.z]
+            .into_iter()
+            .enumerate()
+            .filter_map(|(index, value)| value.is_none().then_some(index))
+            .collect()
+    }
+
     /// Returns the relative orientation resulting from the prescribed
     /// rotational displacement.
     ///
@@ -98,6 +108,23 @@ impl JointCoordinate {
         let orientation = self.relative_orientation_for(displacement);
 
         -orientation.inverse_transform_vector(&forward)
+    }
+
+    pub fn displacement_rate_from_relative_angular_velocity(
+        &self,
+        displacement: Vector3<f64>,
+        angular_velocity: Vector3<f64>,
+    ) -> Vector3<f64> {
+        let angle = displacement.norm();
+        let skew = displacement.cross_matrix();
+        let skew_squared = skew * skew;
+        let second = if angle < 1.0e-8 {
+            1.0 / 12.0 + angle.powi(2) / 720.0
+        } else {
+            1.0 / angle.powi(2) - 1.0 / (2.0 * angle) * (angle / 2.0).cos() / (angle / 2.0).sin()
+        };
+
+        (Matrix3::identity() - 0.5 * skew + second * skew_squared) * angular_velocity
     }
 }
 
@@ -393,8 +420,8 @@ mod tests {
             JointDisplacement::new(Vector3::new(Some(0.4), None, Some(-0.6))),
         );
         let candidate = Vector3::new(1.0, 0.5, 2.0);
-        let expected = UnitQuaternion::from_scaled_axis(Vector3::new(0.4, 0.5, -0.6))
-            * reference_orientation;
+        let expected =
+            UnitQuaternion::from_scaled_axis(Vector3::new(0.4, 0.5, -0.6)) * reference_orientation;
 
         assert!(
             coordinate
@@ -402,6 +429,16 @@ mod tests {
                 .angle_to(&expected)
                 < 1.0e-12
         );
+    }
+
+    #[test]
+    fn lists_free_components_in_authored_order() {
+        let coordinate = JointCoordinate::new(
+            UnitQuaternion::identity(),
+            JointDisplacement::new(Vector3::new(Some(0.4), None, Some(-0.6))),
+        );
+
+        assert_eq!(coordinate.free_component_indices(), vec![1]);
     }
 
     fn input(motions: Vec<Motion>, child_marker_position: Vector3<f64>) -> Input {

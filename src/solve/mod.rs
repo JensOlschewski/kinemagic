@@ -1,8 +1,8 @@
-use crate::model::{BodyId, Marker};
+use crate::model::{BodyId, JointId, Marker};
 use crate::problem::{PreparedProblem, tree::TraversalDirection};
 use std::collections::BTreeMap;
 
-use nalgebra::{UnitQuaternion, Vector3};
+use nalgebra::{DMatrix, UnitQuaternion, Vector3};
 use thiserror::Error;
 
 pub struct BodyPoses {
@@ -24,6 +24,17 @@ pub fn solve(problem: &PreparedProblem) -> Result<BodyPoses, SolverError> {
         return Err(SolverError::ClosedLoopsUnsupported);
     }
 
+    Ok(tree_poses(problem))
+}
+
+pub fn tree_poses(problem: &PreparedProblem) -> BodyPoses {
+    tree_poses_for_candidates(problem, &BTreeMap::new())
+}
+
+pub fn tree_poses_for_candidates(
+    problem: &PreparedProblem,
+    candidates: &BTreeMap<JointId, Vector3<f64>>,
+) -> BodyPoses {
     let mut poses = BTreeMap::new();
 
     poses.insert(
@@ -50,18 +61,376 @@ pub fn solve(problem: &PreparedProblem) -> Result<BodyPoses, SolverError> {
             parent,
             parent_marker,
             child_marker,
-            edge.traversal_relative_orientation(Vector3::zeros()),
+            edge.traversal_relative_orientation(
+                candidates
+                    .get(&edge.joint_id())
+                    .copied()
+                    .unwrap_or_else(Vector3::zeros),
+            ),
         );
 
         poses.insert(edge.child_body_id(), child);
     }
 
-    Ok(BodyPoses { poses })
+    BodyPoses { poses }
+}
+
+pub type TreeTwistColumns = (Vec<(JointId, usize)>, BTreeMap<BodyId, Vec<BodyTwist>>);
+
+pub fn tree_twist_columns(problem: &PreparedProblem) -> TreeTwistColumns {
+    tree_twist_columns_for_candidates(problem, &BTreeMap::new())
+}
+
+pub fn tree_twist_columns_for_candidates(
+    problem: &PreparedProblem,
+    candidates: &BTreeMap<JointId, Vector3<f64>>,
+) -> TreeTwistColumns {
+    let columns = problem.free_primary_coordinates();
+    tree_twist_columns_for_columns(problem, candidates, columns, false)
+}
+
+fn tree_twist_columns_for_columns(
+    problem: &PreparedProblem,
+    candidates: &BTreeMap<JointId, Vector3<f64>>,
+    columns: Vec<(JointId, usize)>,
+    include_prescribed: bool,
+) -> TreeTwistColumns {
+    let poses = tree_poses_for_candidates(problem, candidates);
+    let zero_twist = BodyTwist::new(Vector3::zeros(), Vector3::zeros());
+    let mut twists = BTreeMap::from([(BodyId::GROUND, vec![zero_twist; columns.len()])]);
+
+    for edge in problem.tree_edges() {
+        let joint = problem
+            .model()
+            .joints()
+            .get(edge.joint_id())
+            .expect("PreparedProblem contains missing joint");
+        let parent_pose = poses
+            .get(edge.parent_body_id())
+            .expect("PreparedProblem contains unsolved parent");
+        let child_pose = poses
+            .get(edge.child_body_id())
+            .expect("PreparedProblem contains unsolved child");
+        let parent_twists = twists
+            .get(&edge.parent_body_id())
+            .expect("PreparedProblem contains missing parent twists");
+        let (parent_marker, child_marker) = match edge.direction() {
+            TraversalDirection::IToJ => (joint.i_marker(), joint.j_marker()),
+            TraversalDirection::JToI => (joint.j_marker(), joint.i_marker()),
+        };
+        let parent_marker_orientation = parent_pose.marker_orientation(parent_marker);
+        let parent_marker_offset = parent_pose
+            .orientation()
+            .transform_vector(&parent_marker.position());
+        let child_marker_offset = child_pose
+            .orientation()
+            .transform_vector(&child_marker.position());
+        let displacement = edge.joint_coordinate().resolve_displacement(
+            candidates
+                .get(&edge.joint_id())
+                .copied()
+                .unwrap_or_else(Vector3::zeros),
+        );
+        let mut child_twists = Vec::with_capacity(columns.len());
+
+        for (column, parent_twist) in parent_twists.iter().enumerate() {
+            let mut displacement_rate = Vector3::zeros();
+            if columns[column].0 == edge.joint_id()
+                && (include_prescribed
+                    || edge
+                        .joint_coordinate()
+                        .free_component_indices()
+                        .contains(&columns[column].1))
+            {
+                displacement_rate[columns[column].1] = 1.0;
+            }
+            let relative_angular_velocity =
+                edge.traversal_relative_angular_velocity(displacement, displacement_rate);
+            let parent_marker_velocity = parent_twist.linear_velocity
+                + parent_twist.angular_velocity.cross(&parent_marker_offset);
+            let child_angular_velocity = parent_twist.angular_velocity
+                + parent_marker_orientation.transform_vector(&relative_angular_velocity);
+            let child_linear_velocity =
+                parent_marker_velocity - child_angular_velocity.cross(&child_marker_offset);
+
+            child_twists.push(BodyTwist::new(
+                child_linear_velocity,
+                child_angular_velocity,
+            ));
+        }
+
+        twists.insert(edge.child_body_id(), child_twists);
+    }
+
+    (columns, twists)
+}
+
+pub fn closure_jacobian(problem: &PreparedProblem) -> Result<DMatrix<f64>, ResidualError> {
+    closure_jacobian_for_candidates(problem, &BTreeMap::new())
+}
+
+pub fn closure_jacobian_for_candidates(
+    problem: &PreparedProblem,
+    candidates: &BTreeMap<JointId, Vector3<f64>>,
+) -> Result<DMatrix<f64>, ResidualError> {
+    let columns = problem.free_primary_coordinates();
+    closure_jacobian_for_columns(problem, candidates, columns, false)
+}
+
+fn closure_jacobian_for_columns(
+    problem: &PreparedProblem,
+    candidates: &BTreeMap<JointId, Vector3<f64>>,
+    columns: Vec<(JointId, usize)>,
+    include_prescribed: bool,
+) -> Result<DMatrix<f64>, ResidualError> {
+    let poses = tree_poses_for_candidates(problem, candidates);
+    let (_, body_twist_columns) =
+        tree_twist_columns_for_columns(problem, candidates, columns.clone(), include_prescribed);
+    let mut column_rates = Vec::with_capacity(columns.len());
+
+    for column in 0..columns.len() {
+        let twists = body_twist_columns
+            .iter()
+            .map(|(body_id, body_twists)| (*body_id, body_twists[column]))
+            .collect();
+        column_rates.push(closure_residual_rates(problem, &poses, &twists)?);
+    }
+
+    let row_count = column_rates
+        .first()
+        .map_or_else(|| closure_residuals(problem, &poses).len(), Vec::len);
+    let mut jacobian = DMatrix::zeros(row_count, columns.len());
+
+    for (column, rates) in column_rates.into_iter().enumerate() {
+        for (row, rate) in rates.into_iter().enumerate() {
+            jacobian[(row, column)] = rate;
+        }
+    }
+
+    Ok(jacobian)
+}
+
+#[derive(Debug)]
+pub struct ClosureJacobian {
+    matrix: DMatrix<f64>,
+    columns: Vec<(JointId, usize)>,
+    selected_columns: Vec<usize>,
+    rank: usize,
+    tolerance: f64,
+}
+
+impl ClosureJacobian {
+    pub fn matrix(&self) -> &DMatrix<f64> {
+        &self.matrix
+    }
+
+    pub fn columns(&self) -> &[(JointId, usize)] {
+        &self.columns
+    }
+
+    pub fn selected_columns(&self) -> &[usize] {
+        &self.selected_columns
+    }
+
+    pub fn selected_coordinates(&self) -> Vec<(JointId, usize)> {
+        self.selected_columns
+            .iter()
+            .map(|column| self.columns[*column])
+            .collect()
+    }
+
+    pub fn rank(&self) -> usize {
+        self.rank
+    }
+
+    pub fn tolerance(&self) -> f64 {
+        self.tolerance
+    }
+
+    pub fn residual_dimension(&self) -> usize {
+        self.matrix.nrows()
+    }
+}
+
+pub fn analyze_closure_jacobian(
+    problem: &PreparedProblem,
+    candidates: &BTreeMap<JointId, Vector3<f64>>,
+) -> Result<ClosureJacobian, JacobianError> {
+    let columns = problem.primary_coordinates();
+    let free_columns = problem.free_primary_coordinates();
+    let matrix = closure_jacobian_for_columns(problem, candidates, columns.clone(), true)?;
+    let free_indices = columns
+        .iter()
+        .enumerate()
+        .filter_map(|(index, column)| free_columns.contains(column).then_some(index))
+        .collect::<Vec<_>>();
+    let free_matrix = if free_indices.is_empty() {
+        DMatrix::zeros(matrix.nrows(), 0)
+    } else {
+        DMatrix::from_columns(
+            &free_indices
+                .iter()
+                .map(|index| matrix.column(*index).into_owned())
+                .collect::<Vec<_>>(),
+        )
+    };
+
+    if matrix
+        .iter()
+        .chain(free_matrix.iter())
+        .any(|value| !value.is_finite())
+    {
+        return Err(JacobianError::NonFinite);
+    }
+
+    let singular_values = if matrix.nrows() == 0 || matrix.ncols() == 0 {
+        Vec::new()
+    } else {
+        matrix
+            .clone()
+            .svd(false, false)
+            .singular_values
+            .as_slice()
+            .to_vec()
+    };
+    let largest_singular_value = singular_values.iter().copied().fold(0.0, f64::max);
+    let free_singular_values = if free_matrix.nrows() == 0 || free_matrix.ncols() == 0 {
+        Vec::new()
+    } else {
+        free_matrix
+            .clone()
+            .svd(false, false)
+            .singular_values
+            .as_slice()
+            .to_vec()
+    };
+    let largest_free_singular_value = free_singular_values.iter().copied().fold(0.0, f64::max);
+    let scale = largest_singular_value.max(largest_free_singular_value);
+    let tolerance = 1.0e-12 * matrix.nrows().max(matrix.ncols()) as f64 * scale;
+    let rank = if matrix.nrows() == 0 || matrix.ncols() == 0 {
+        0
+    } else {
+        matrix.clone().svd(false, false).rank(tolerance)
+    };
+    let mut selected_columns = Vec::new();
+
+    for (free_column, column) in free_indices.iter().enumerate() {
+        let mut selected = selected_columns
+            .iter()
+            .map(|index| matrix.column(*index).into_owned())
+            .collect::<Vec<_>>();
+        selected.push(free_matrix.column(free_column).into_owned());
+        let candidate_matrix = DMatrix::from_columns(&selected);
+
+        if candidate_matrix.clone().svd(false, false).rank(tolerance) > selected_columns.len() {
+            selected_columns.push(*column);
+        }
+    }
+
+    if selected_columns.len() != rank {
+        return Err(JacobianError::InsufficientCandidateRank {
+            rank,
+            selected: selected_columns.len(),
+        });
+    }
+
+    Ok(ClosureJacobian {
+        matrix,
+        columns,
+        selected_columns,
+        rank,
+        tolerance,
+    })
+}
+
+pub fn closure_position_residuals(
+    problem: &PreparedProblem,
+    poses: &BodyPoses,
+) -> Vec<Vector3<f64>> {
+    problem
+        .closure_joint_ids()
+        .iter()
+        .map(|joint_id| {
+            let joint = problem
+                .model()
+                .joints()
+                .get(*joint_id)
+                .expect("PreparedProblem contains missing closure joint");
+
+            let i_pose = poses
+                .get(joint.i_marker().body_id())
+                .expect("closure joint i body has no pose");
+
+            let j_pose = poses
+                .get(joint.j_marker().body_id())
+                .expect("closure joint j body has no pose");
+
+            i_pose.marker_position(joint.i_marker()) - j_pose.marker_position(joint.j_marker())
+        })
+        .collect()
+}
+
+pub fn closure_orientation_residuals(problem: &PreparedProblem, poses: &BodyPoses) -> Vec<f64> {
+    problem
+        .closure_joint_ids()
+        .iter()
+        .flat_map(|joint_id| {
+            let joint = problem
+                .model()
+                .joints()
+                .get(*joint_id)
+                .expect("PreparedProblem contains missing closure joint");
+            let coordinate = problem
+                .joint_coordinate(*joint_id)
+                .expect("PreparedProblem contains missing joint coordinate");
+            let i_pose = poses
+                .get(joint.i_marker().body_id())
+                .expect("closure joint i body has no pose");
+            let j_pose = poses
+                .get(joint.j_marker().body_id())
+                .expect("closure joint j body has no pose");
+            let actual = i_pose.marker_orientation(joint.i_marker()).inverse()
+                * j_pose.marker_orientation(joint.j_marker());
+            let actual_displacement =
+                (actual * coordinate.reference_orientation().inverse()).scaled_axis();
+            let requested = coordinate.displacement().rotation();
+
+            [requested.x, requested.y, requested.z]
+                .into_iter()
+                .enumerate()
+                .filter_map(move |(index, requested)| {
+                    requested.map(|requested| actual_displacement[index] - requested)
+                })
+        })
+        .collect()
 }
 
 pub struct BodyPose {
     position: Vector3<f64>,
     orientation: UnitQuaternion<f64>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct BodyTwist {
+    linear_velocity: Vector3<f64>,
+    angular_velocity: Vector3<f64>,
+}
+
+impl BodyTwist {
+    pub fn new(linear_velocity: Vector3<f64>, angular_velocity: Vector3<f64>) -> Self {
+        Self {
+            linear_velocity,
+            angular_velocity,
+        }
+    }
+
+    pub fn linear_velocity(&self) -> Vector3<f64> {
+        self.linear_velocity
+    }
+
+    pub fn angular_velocity(&self) -> Vector3<f64> {
+        self.angular_velocity
+    }
 }
 
 impl BodyPose {
@@ -87,6 +456,142 @@ impl BodyPose {
     pub fn marker_position(&self, marker: &Marker) -> Vector3<f64> {
         self.position() + self.orientation().transform_vector(&marker.position())
     }
+
+    pub fn marker_velocity(&self, marker: &Marker, twist: BodyTwist) -> Vector3<f64> {
+        twist.linear_velocity
+            + twist
+                .angular_velocity
+                .cross(&self.orientation().transform_vector(&marker.position()))
+    }
+}
+
+pub fn closure_position_residual_rates(
+    problem: &PreparedProblem,
+    poses: &BodyPoses,
+    twists: &BTreeMap<BodyId, BodyTwist>,
+) -> Result<Vec<Vector3<f64>>, ResidualError> {
+    let mut rates = Vec::new();
+
+    for joint_id in problem.closure_joint_ids() {
+        let joint = problem
+            .model()
+            .joints()
+            .get(*joint_id)
+            .expect("PreparedProblem contains missing closure joint");
+        let i_pose = poses
+            .get(joint.i_marker().body_id())
+            .expect("closure joint i body has no pose");
+        let j_pose = poses
+            .get(joint.j_marker().body_id())
+            .expect("closure joint j body has no pose");
+        let i_twist =
+            *twists
+                .get(&joint.i_marker().body_id())
+                .ok_or(ResidualError::MissingBodyTwist {
+                    joint_id: *joint_id,
+                    body_id: joint.i_marker().body_id(),
+                })?;
+        let j_twist =
+            *twists
+                .get(&joint.j_marker().body_id())
+                .ok_or(ResidualError::MissingBodyTwist {
+                    joint_id: *joint_id,
+                    body_id: joint.j_marker().body_id(),
+                })?;
+
+        rates.push(
+            i_pose.marker_velocity(joint.i_marker(), i_twist)
+                - j_pose.marker_velocity(joint.j_marker(), j_twist),
+        );
+    }
+
+    Ok(rates)
+}
+
+pub fn closure_orientation_residual_rates(
+    problem: &PreparedProblem,
+    poses: &BodyPoses,
+    twists: &BTreeMap<BodyId, BodyTwist>,
+) -> Result<Vec<f64>, ResidualError> {
+    let mut rates = Vec::new();
+
+    for joint_id in problem.closure_joint_ids() {
+        let joint = problem
+            .model()
+            .joints()
+            .get(*joint_id)
+            .expect("PreparedProblem contains missing closure joint");
+        let coordinate = problem
+            .joint_coordinate(*joint_id)
+            .expect("PreparedProblem contains missing joint coordinate");
+        let i_pose = poses
+            .get(joint.i_marker().body_id())
+            .expect("closure joint i body has no pose");
+        let j_pose = poses
+            .get(joint.j_marker().body_id())
+            .expect("closure joint j body has no pose");
+        let i_twist =
+            *twists
+                .get(&joint.i_marker().body_id())
+                .ok_or(ResidualError::MissingBodyTwist {
+                    joint_id: *joint_id,
+                    body_id: joint.i_marker().body_id(),
+                })?;
+        let j_twist =
+            *twists
+                .get(&joint.j_marker().body_id())
+                .ok_or(ResidualError::MissingBodyTwist {
+                    joint_id: *joint_id,
+                    body_id: joint.j_marker().body_id(),
+                })?;
+        let actual = i_pose.marker_orientation(joint.i_marker()).inverse()
+            * j_pose.marker_orientation(joint.j_marker());
+        let actual_displacement =
+            (actual * coordinate.reference_orientation().inverse()).scaled_axis();
+        let relative_angular_velocity = i_pose
+            .marker_orientation(joint.i_marker())
+            .inverse_transform_vector(&(j_twist.angular_velocity - i_twist.angular_velocity));
+        let actual_displacement_rate = coordinate.displacement_rate_from_relative_angular_velocity(
+            actual_displacement,
+            relative_angular_velocity,
+        );
+        let requested = coordinate.displacement().rotation();
+
+        for (index, requested) in [requested.x, requested.y, requested.z]
+            .into_iter()
+            .enumerate()
+        {
+            if requested.is_some() {
+                rates.push(actual_displacement_rate[index]);
+            }
+        }
+    }
+
+    Ok(rates)
+}
+
+pub fn closure_residuals(problem: &PreparedProblem, poses: &BodyPoses) -> Vec<f64> {
+    let position_rows = closure_position_residuals(problem, poses)
+        .into_iter()
+        .flat_map(|residual| [residual.x, residual.y, residual.z]);
+
+    position_rows
+        .chain(closure_orientation_residuals(problem, poses))
+        .collect()
+}
+
+pub fn closure_residual_rates(
+    problem: &PreparedProblem,
+    poses: &BodyPoses,
+    twists: &BTreeMap<BodyId, BodyTwist>,
+) -> Result<Vec<f64>, ResidualError> {
+    let position_rows = closure_position_residual_rates(problem, poses, twists)?
+        .into_iter()
+        .flat_map(|rate| [rate.x, rate.y, rate.z]);
+
+    Ok(position_rows
+        .chain(closure_orientation_residual_rates(problem, poses, twists)?)
+        .collect())
 }
 
 pub fn spherical_child_pose(
@@ -114,10 +619,28 @@ pub enum SolverError {
     ClosedLoopsUnsupported,
 }
 
+#[derive(Debug, Error)]
+pub enum ResidualError {
+    #[error("closure joint `{joint_id:?}` body `{body_id:?}` has no twist")]
+    MissingBodyTwist { joint_id: JointId, body_id: BodyId },
+}
+
+#[derive(Debug, Error)]
+pub enum JacobianError {
+    #[error(transparent)]
+    Residual(#[from] ResidualError),
+    #[error("closure Jacobian contains non-finite values")]
+    NonFinite,
+    #[error("closure Jacobian rank {rank} exceeds selected candidate rank {selected}")]
+    InsufficientCandidateRank { rank: usize, selected: usize },
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::io::yaml::parse_yaml_str;
     use crate::model::BodyId;
+    use crate::problem::prepare;
 
     const TOLERANCE: f64 = 1.0e-12;
 
@@ -199,6 +722,322 @@ mod tests {
 
         assert_position_close(i_world, j_world);
         assert_orientation_close(child.orientation(), relative_orientation);
+    }
+
+    #[test]
+    fn evaluates_closed_loop_position_residuals_from_tree_poses() {
+        let input = parse_yaml_str(include_str!(
+            "../../examples/spherical_one_body_closed_loop_motion.yaml"
+        ))
+        .unwrap()
+        .into_input()
+        .unwrap();
+        let problem = prepare(input).unwrap();
+        let poses = tree_poses(&problem);
+        let residuals = closure_position_residuals(&problem, &poses);
+
+        assert_eq!(residuals.len(), 1);
+        assert!(residuals[0].norm() < TOLERANCE);
+    }
+
+    #[test]
+    fn evaluates_prescribed_closed_loop_orientation_residuals() {
+        let yaml = format!(
+            "{}\n  RotateJ2:\n    kind: joint-coordinates\n    joint_id: 2\n    displacement:\n      rot_z: -90\n",
+            include_str!("../../examples/spherical_one_body_closed_loop_motion.yaml")
+        );
+        let input = parse_yaml_str(&yaml).unwrap().into_input().unwrap();
+        let problem = prepare(input).unwrap();
+        let poses = tree_poses(&problem);
+        let residuals = closure_orientation_residuals(&problem, &poses);
+
+        assert_eq!(residuals.len(), 1);
+        assert!(residuals[0].abs() < TOLERANCE);
+    }
+
+    #[test]
+    fn evaluates_closed_loop_position_residual_rates_from_body_twists() {
+        let input = parse_yaml_str(include_str!(
+            "../../examples/spherical_one_body_closed_loop_motion.yaml"
+        ))
+        .unwrap()
+        .into_input()
+        .unwrap();
+        let problem = prepare(input).unwrap();
+        let poses = tree_poses(&problem);
+        let twists = BTreeMap::from([
+            (
+                BodyId::GROUND,
+                BodyTwist::new(Vector3::zeros(), Vector3::zeros()),
+            ),
+            (
+                BodyId::new(1),
+                BodyTwist::new(Vector3::zeros(), Vector3::x()),
+            ),
+        ]);
+        let rates = closure_position_residual_rates(&problem, &poses, &twists).unwrap();
+
+        assert_eq!(rates.len(), 1);
+        assert!(rates[0].norm() > 1.0);
+    }
+
+    #[test]
+    fn rejects_missing_body_twist_for_closure_rates() {
+        let input = parse_yaml_str(include_str!(
+            "../../examples/spherical_one_body_closed_loop_motion.yaml"
+        ))
+        .unwrap()
+        .into_input()
+        .unwrap();
+        let problem = prepare(input).unwrap();
+        let poses = tree_poses(&problem);
+
+        assert!(matches!(
+            closure_position_residual_rates(&problem, &poses, &BTreeMap::new()),
+            Err(ResidualError::MissingBodyTwist { .. })
+        ));
+    }
+
+    #[test]
+    fn propagates_free_primary_twist_columns_in_deterministic_order() {
+        let input = parse_yaml_str(include_str!(
+            "../../tests/fixtures/spherical_one_body_parse.yaml"
+        ))
+        .unwrap()
+        .into_input()
+        .unwrap();
+        let problem = prepare(input).unwrap();
+        let (columns, twists) = tree_twist_columns(&problem);
+        let body_twists = twists.get(&BodyId::new(1)).unwrap();
+
+        assert_eq!(
+            columns,
+            vec![
+                (crate::model::JointId::new(1), 0),
+                (crate::model::JointId::new(1), 1),
+                (crate::model::JointId::new(1), 2)
+            ]
+        );
+        assert_eq!(body_twists.len(), 3);
+        assert_eq!(body_twists[2].angular_velocity, Vector3::z());
+        assert_eq!(body_twists[2].linear_velocity, Vector3::zeros());
+    }
+
+    #[test]
+    fn preserves_non_contiguous_free_primary_columns() {
+        let yaml = include_str!("../../examples/spherical_one_body_closed_loop_motion.yaml")
+            .replace("      rot_z: 90", "      rot_x: 10\n      rot_z: 90");
+        let input = parse_yaml_str(&yaml).unwrap().into_input().unwrap();
+        let problem = prepare(input).unwrap();
+        let (columns, twists) = tree_twist_columns(&problem);
+        let body_twists = twists.get(&BodyId::new(1)).unwrap();
+
+        assert_eq!(columns, vec![(crate::model::JointId::new(1), 1)]);
+        assert!(body_twists[0].angular_velocity.norm() > 0.0);
+    }
+
+    #[test]
+    fn validates_reversed_tree_twist_columns_against_pose_perturbations() {
+        let input = parse_yaml_str(
+            r#"hardpoints:
+  P1: [0.0, 0.0, 0.0]
+bodies:
+  B1:
+    body_id: 1
+    side: single
+    position: [0.0, 0.0, 0.0]
+    orientation:
+      method: euler
+      euler_angles: [0, 0, 0]
+    points_on_body: [P1]
+joints:
+  J1:
+    joint_id: 1
+    kind: spherical
+    role: primary
+    i:
+      body_id: 1
+      position: P1
+      orientation:
+        method: euler
+        euler_angles: [0.2, -0.1, 0.3]
+    j:
+      body_id: 0
+      position: P1
+      orientation:
+        method: euler
+        euler_angles: [-0.4, 0.5, -0.2]
+"#,
+        )
+        .unwrap()
+        .into_input()
+        .unwrap();
+        let problem = prepare(input).unwrap();
+        let candidates = BTreeMap::from([(crate::model::JointId::new(1), Vector3::zeros())]);
+        let (columns, twists) = tree_twist_columns_for_candidates(&problem, &candidates);
+        let step = 1.0e-7;
+
+        for (column, (_, component)) in columns.iter().enumerate() {
+            let mut forward = candidates.clone();
+            let mut backward = candidates.clone();
+            forward.get_mut(&crate::model::JointId::new(1)).unwrap()[*component] += step;
+            backward.get_mut(&crate::model::JointId::new(1)).unwrap()[*component] -= step;
+            let forward_orientation = tree_poses_for_candidates(&problem, &forward)
+                .get(BodyId::new(1))
+                .unwrap()
+                .orientation();
+            let backward_orientation = tree_poses_for_candidates(&problem, &backward)
+                .get(BodyId::new(1))
+                .unwrap()
+                .orientation();
+            let finite_difference =
+                (forward_orientation * backward_orientation.inverse()).scaled_axis() / (2.0 * step);
+
+            assert!(
+                (twists[&BodyId::new(1)][column].angular_velocity - finite_difference).norm()
+                    < 1.0e-6
+            );
+        }
+    }
+
+    #[test]
+    fn assembles_closure_jacobian_from_twist_columns() {
+        let input = parse_yaml_str(include_str!(
+            "../../examples/spherical_one_body_closed_loop_motion.yaml"
+        ))
+        .unwrap()
+        .into_input()
+        .unwrap();
+        let problem = prepare(input).unwrap();
+        let jacobian = closure_jacobian(&problem).unwrap();
+
+        assert_eq!(jacobian.nrows(), 3);
+        assert_eq!(jacobian.ncols(), 2);
+        assert!(jacobian.iter().any(|value| value.abs() > 1.0));
+    }
+
+    #[test]
+    fn analytic_closure_jacobian_matches_candidate_perturbations() {
+        let input = parse_yaml_str(include_str!(
+            "../../examples/spherical_one_body_closed_loop_motion.yaml"
+        ))
+        .unwrap()
+        .into_input()
+        .unwrap();
+        let problem = prepare(input).unwrap();
+        let candidates =
+            BTreeMap::from([(crate::model::JointId::new(1), Vector3::new(0.2, 0.1, 0.0))]);
+        let jacobian = closure_jacobian_for_candidates(&problem, &candidates).unwrap();
+        let step = 1.0e-7;
+
+        for column in 0..jacobian.ncols() {
+            let component = problem.free_primary_coordinates()[column].1;
+            let mut forward = candidates.clone();
+            let mut backward = candidates.clone();
+            forward.get_mut(&crate::model::JointId::new(1)).unwrap()[component] += step;
+            backward.get_mut(&crate::model::JointId::new(1)).unwrap()[component] -= step;
+            let forward_residuals =
+                closure_residuals(&problem, &tree_poses_for_candidates(&problem, &forward));
+            let backward_residuals =
+                closure_residuals(&problem, &tree_poses_for_candidates(&problem, &backward));
+
+            for row in 0..jacobian.nrows() {
+                let finite_difference =
+                    (forward_residuals[row] - backward_residuals[row]) / (2.0 * step);
+                assert!((jacobian[(row, column)] - finite_difference).abs() < 1.0e-6);
+            }
+        }
+    }
+
+    #[test]
+    fn reports_deterministic_closure_jacobian_rank_and_selection() {
+        let input = parse_yaml_str(include_str!(
+            "../../examples/spherical_one_body_closed_loop_motion.yaml"
+        ))
+        .unwrap()
+        .into_input()
+        .unwrap();
+        let problem = prepare(input).unwrap();
+        let analysis = analyze_closure_jacobian(&problem, &BTreeMap::new()).unwrap();
+
+        assert_eq!(analysis.residual_dimension(), 3);
+        assert_eq!(analysis.rank(), 2);
+        assert_eq!(analysis.selected_columns(), &[0, 1]);
+        assert!(analysis.tolerance() > 0.0);
+        assert_eq!(analysis.selected_coordinates().len(), 2);
+    }
+
+    #[test]
+    fn rejects_over_prescribed_closure_jacobian() {
+        let yaml = include_str!("../../examples/spherical_one_body_closed_loop_motion.yaml")
+            .replace(
+                "      rot_z: 90",
+                "      rot_x: 10\n      rot_y: 20\n      rot_z: 90",
+            );
+        let input = parse_yaml_str(&yaml).unwrap().into_input().unwrap();
+        let problem = prepare(input).unwrap();
+
+        assert!(matches!(
+            analyze_closure_jacobian(&problem, &BTreeMap::new()),
+            Err(JacobianError::InsufficientCandidateRank {
+                rank: 2,
+                selected: 0
+            })
+        ));
+    }
+
+    #[test]
+    fn evaluates_prescribed_closed_loop_orientation_residual_rates() {
+        let yaml = format!(
+            "{}\n  RotateJ2:\n    kind: joint-coordinates\n    joint_id: 2\n    displacement:\n      rot_z: -90\n",
+            include_str!("../../examples/spherical_one_body_closed_loop_motion.yaml")
+        );
+        let input = parse_yaml_str(&yaml).unwrap().into_input().unwrap();
+        let problem = prepare(input).unwrap();
+        let poses = tree_poses(&problem);
+        let twists = BTreeMap::from([
+            (
+                BodyId::GROUND,
+                BodyTwist::new(Vector3::zeros(), Vector3::zeros()),
+            ),
+            (
+                BodyId::new(1),
+                BodyTwist::new(Vector3::zeros(), Vector3::z()),
+            ),
+        ]);
+        let rates = closure_orientation_residual_rates(&problem, &poses, &twists).unwrap();
+
+        assert_eq!(rates.len(), 1);
+        assert!((rates[0] + 1.0).abs() < TOLERANCE);
+    }
+
+    #[test]
+    fn orders_position_rows_before_orientation_rows() {
+        let yaml = format!(
+            "{}\n  RotateJ2:\n    kind: joint-coordinates\n    joint_id: 2\n    displacement:\n      rot_z: -90\n",
+            include_str!("../../examples/spherical_one_body_closed_loop_motion.yaml")
+        );
+        let input = parse_yaml_str(&yaml).unwrap().into_input().unwrap();
+        let problem = prepare(input).unwrap();
+        let poses = tree_poses(&problem);
+        let twists = BTreeMap::from([
+            (
+                BodyId::GROUND,
+                BodyTwist::new(Vector3::zeros(), Vector3::zeros()),
+            ),
+            (
+                BodyId::new(1),
+                BodyTwist::new(Vector3::zeros(), Vector3::z()),
+            ),
+        ]);
+        let residuals = closure_residuals(&problem, &poses);
+        let rates = closure_residual_rates(&problem, &poses, &twists).unwrap();
+
+        assert_eq!(residuals.len(), 4);
+        assert!(residuals.iter().all(|residual| residual.abs() < TOLERANCE));
+        assert_eq!(rates.len(), 4);
+        assert!(rates[..3].iter().all(|rate| rate.abs() < TOLERANCE));
+        assert!((rates[3] + 1.0).abs() < TOLERANCE);
     }
 
     fn parent_pose() -> BodyPose {
