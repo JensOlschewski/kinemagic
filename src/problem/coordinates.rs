@@ -38,6 +38,16 @@ impl JointCoordinate {
         &self.displacement
     }
 
+    pub fn free_component_indices(&self) -> Vec<usize> {
+        let rotation = self.displacement.rotation();
+
+        [rotation.x, rotation.y, rotation.z]
+            .into_iter()
+            .enumerate()
+            .filter_map(|(index, value)| value.is_none().then_some(index))
+            .collect()
+    }
+
     /// Returns the relative orientation resulting from the prescribed
     /// rotational displacement.
     ///
@@ -419,6 +429,16 @@ mod tests {
                 .angle_to(&expected)
                 < 1.0e-12
         );
+    }
+
+    #[test]
+    fn lists_free_components_in_authored_order() {
+        let coordinate = JointCoordinate::new(
+            UnitQuaternion::identity(),
+            JointDisplacement::new(Vector3::new(Some(0.4), None, Some(-0.6))),
+        );
+
+        assert_eq!(coordinate.free_component_indices(), vec![1]);
     }
 
     fn input(motions: Vec<Motion>, child_marker_position: Vector3<f64>) -> Input {

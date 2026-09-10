@@ -34,6 +34,25 @@ impl PreparedProblem {
     pub fn joint_coordinate(&self, joint_id: JointId) -> Option<&JointCoordinate> {
         self.joint_coordinates.get(joint_id)
     }
+
+    pub fn free_primary_coordinates(&self) -> Vec<(JointId, usize)> {
+        self.tree_edges
+            .iter()
+            .flat_map(|edge| {
+                edge.joint_coordinate()
+                    .free_component_indices()
+                    .into_iter()
+                    .map(move |component| (edge.joint_id(), component))
+            })
+            .collect()
+    }
+
+    pub fn primary_coordinates(&self) -> Vec<(JointId, usize)> {
+        self.tree_edges
+            .iter()
+            .flat_map(|edge| (0..3).map(move |component| (edge.joint_id(), component)))
+            .collect()
+    }
 }
 
 #[derive(Debug)]
