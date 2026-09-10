@@ -47,6 +47,14 @@ fn solve_closed_loop(problem: &PreparedProblem) -> Result<BodyPoses, SolverError
         }
 
         let analysis = analyze_closure_jacobian(problem, &candidates)?;
+        let free_coordinate_count = problem.free_primary_coordinates().len();
+        if free_coordinate_count > analysis.selected_columns().len() {
+            return Err(SolverError::UnderDetermined {
+                free_coordinates: free_coordinate_count,
+                dependent_coordinates: analysis.selected_columns().len(),
+                remaining_dofs: free_coordinate_count - analysis.selected_columns().len(),
+            });
+        }
         let selected = analysis.selected_columns();
         if selected.is_empty() {
             return Err(SolverError::NoIndependentCoordinates);
@@ -719,6 +727,14 @@ pub enum SolverError {
     NonFiniteStep,
     #[error("closed-loop residual has no independent coordinates")]
     NoIndependentCoordinates,
+    #[error(
+        "closed-loop mechanism is under-determined: {free_coordinates} free coordinates, {dependent_coordinates} dependent coordinates, {remaining_dofs} remaining DOFs"
+    )]
+    UnderDetermined {
+        free_coordinates: usize,
+        dependent_coordinates: usize,
+        remaining_dofs: usize,
+    },
     #[error("closed-loop linear solve failed: {0}")]
     LinearSolveFailed(&'static str),
     #[error(
