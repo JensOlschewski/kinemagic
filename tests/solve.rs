@@ -115,15 +115,65 @@ fn solving_is_repeatable_without_mutating_problem() {
 }
 
 #[test]
-fn rejects_closed_loop_problem() {
+fn solves_closed_loop_problem() {
     let yaml = include_str!("../examples/spherical_one_body_closed_loop_motion.yaml");
     let problem = prepared(yaml);
 
-    let result = solve(&problem);
+    let poses = solve(&problem).unwrap();
+
+    assert_complete(&problem, &poses);
+    assert!(
+        kinemagic::solve::closure_position_residuals(&problem, &poses,)
+            .iter()
+            .all(|residual| residual.norm() < 1.0e-8)
+    );
+}
+
+#[test]
+fn solves_closed_loop_with_prescribed_orientation_constraint() {
+    let yaml = format!(
+        "{}\n  RotateJ2:\n    kind: joint-coordinates\n    joint_id: 2\n    displacement:\n      rot_z: -90\n",
+        include_str!("../examples/spherical_one_body_closed_loop_motion.yaml")
+    );
+    let problem = prepared(&yaml);
+    let poses = solve(&problem).unwrap();
+
+    assert!(
+        kinemagic::solve::closure_orientation_residuals(&problem, &poses)
+            .iter()
+            .all(|residual| residual.abs() < 1.0e-8)
+    );
+}
+
+#[test]
+fn solves_closed_loop_with_equivalent_large_angle_constraint() {
+    let yaml = format!(
+        "{}\n  RotateJ2:\n    kind: joint-coordinates\n    joint_id: 2\n    displacement:\n      rot_z: 270\n",
+        include_str!("../examples/spherical_one_body_closed_loop_motion.yaml")
+    );
+    let problem = prepared(&yaml);
+    let poses = solve(&problem).unwrap();
+
+    assert!(
+        kinemagic::solve::closure_orientation_residuals(&problem, &poses)
+            .iter()
+            .all(|residual| residual.abs() < 1.0e-8)
+    );
+}
+
+#[test]
+fn rejects_over_prescribed_closed_loop_problem() {
+    let yaml = include_str!("../examples/spherical_one_body_closed_loop_motion.yaml").replace(
+        "      rot_z: 90",
+        "      rot_x: 10\n      rot_y: 20\n      rot_z: 90",
+    );
+    let problem = prepared(&yaml);
 
     assert!(matches!(
-        result,
-        Err(kinemagic::solve::SolverError::ClosedLoopsUnsupported)
+        solve(&problem),
+        Err(kinemagic::solve::SolverError::Jacobian(
+            kinemagic::solve::JacobianError::InsufficientCandidateRank { .. }
+        ))
     ));
 }
 

@@ -2,12 +2,17 @@ use crate::model::{BodyId, JointId, Marker};
 use crate::problem::{PreparedProblem, tree::TraversalDirection};
 use std::collections::BTreeMap;
 
-use nalgebra::{DMatrix, UnitQuaternion, Vector3};
+use nalgebra::{DMatrix, DVector, UnitQuaternion, Vector3};
 use thiserror::Error;
 
 pub struct BodyPoses {
     poses: BTreeMap<BodyId, BodyPose>,
 }
+
+const CLOSED_LOOP_MAX_ITERATIONS: usize = 50;
+const CLOSED_LOOP_MAX_BACKTRACKS: usize = 32;
+const CLOSED_LOOP_RESIDUAL_TOLERANCE: f64 = 1.0e-10;
+const CLOSED_LOOP_STEP_TOLERANCE: f64 = 1.0e-12;
 
 impl BodyPoses {
     pub fn get(&self, body_id: BodyId) -> Option<&BodyPose> {
@@ -21,10 +26,99 @@ impl BodyPoses {
 
 pub fn solve(problem: &PreparedProblem) -> Result<BodyPoses, SolverError> {
     if !problem.closure_joint_ids().is_empty() {
-        return Err(SolverError::ClosedLoopsUnsupported);
+        return solve_closed_loop(problem);
     }
 
     Ok(tree_poses(problem))
+}
+
+fn solve_closed_loop(problem: &PreparedProblem) -> Result<BodyPoses, SolverError> {
+    let mut candidates = BTreeMap::new();
+
+    for iteration in 0..CLOSED_LOOP_MAX_ITERATIONS {
+        let poses = tree_poses_for_candidates(problem, &candidates);
+        let residuals = closure_residuals(problem, &poses);
+        let residual_norm = DVector::from_vec(residuals.clone()).norm();
+        if !residual_norm.is_finite() {
+            return Err(SolverError::NonFiniteResidual);
+        }
+        if residual_norm <= CLOSED_LOOP_RESIDUAL_TOLERANCE {
+            return Ok(poses);
+        }
+
+        let analysis = analyze_closure_jacobian(problem, &candidates)?;
+        let selected = analysis.selected_columns();
+        if selected.is_empty() {
+            return Err(SolverError::NoIndependentCoordinates);
+        }
+        let jacobian = DMatrix::from_columns(
+            &selected
+                .iter()
+                .map(|column| analysis.matrix().column(*column).into_owned())
+                .collect::<Vec<_>>(),
+        );
+        let step = jacobian
+            .svd(true, true)
+            .solve(&(-DVector::from_vec(residuals)), analysis.tolerance())
+            .map_err(SolverError::LinearSolveFailed)?;
+        if step.iter().any(|value| !value.is_finite()) {
+            return Err(SolverError::NonFiniteStep);
+        }
+
+        let mut accepted_candidates = None;
+        let mut accepted_step_norm = 0.0;
+        for attempt in 0..CLOSED_LOOP_MAX_BACKTRACKS {
+            let scale = 0.5_f64.powi(attempt as i32);
+            let mut trial_candidates = candidates.clone();
+            for (index, column) in selected.iter().enumerate() {
+                let (joint_id, component) = analysis.columns()[*column];
+                trial_candidates
+                    .entry(joint_id)
+                    .or_insert_with(Vector3::zeros)[component] += scale * step[index];
+            }
+            let trial_poses = tree_poses_for_candidates(problem, &trial_candidates);
+            let trial_residual_norm =
+                DVector::from_vec(closure_residuals(problem, &trial_poses)).norm();
+            if trial_residual_norm.is_finite() && trial_residual_norm < residual_norm {
+                accepted_step_norm = scale * step.norm();
+                accepted_candidates = Some(trial_candidates);
+                break;
+            }
+        }
+        let Some(updated_candidates) = accepted_candidates else {
+            return Err(SolverError::NonConvergent {
+                iterations: iteration + 1,
+                residual_norm,
+            });
+        };
+        candidates = updated_candidates;
+
+        if accepted_step_norm <= CLOSED_LOOP_STEP_TOLERANCE {
+            let updated_poses = tree_poses_for_candidates(problem, &candidates);
+            let updated_residual_norm =
+                DVector::from_vec(closure_residuals(problem, &updated_poses)).norm();
+            if !updated_residual_norm.is_finite() {
+                return Err(SolverError::NonFiniteResidual);
+            }
+            if updated_residual_norm <= CLOSED_LOOP_RESIDUAL_TOLERANCE {
+                return Ok(updated_poses);
+            }
+            return Err(SolverError::NonConvergent {
+                iterations: iteration + 1,
+                residual_norm: updated_residual_norm,
+            });
+        }
+    }
+
+    let poses = tree_poses_for_candidates(problem, &candidates);
+    let residual_norm = DVector::from_vec(closure_residuals(problem, &poses)).norm();
+    if !residual_norm.is_finite() {
+        return Err(SolverError::NonFiniteResidual);
+    }
+    Err(SolverError::NonConvergent {
+        iterations: CLOSED_LOOP_MAX_ITERATIONS,
+        residual_norm,
+    })
 }
 
 pub fn tree_poses(problem: &PreparedProblem) -> BodyPoses {
@@ -283,17 +377,6 @@ pub fn analyze_closure_jacobian(
         return Err(JacobianError::NonFinite);
     }
 
-    let singular_values = if matrix.nrows() == 0 || matrix.ncols() == 0 {
-        Vec::new()
-    } else {
-        matrix
-            .clone()
-            .svd(false, false)
-            .singular_values
-            .as_slice()
-            .to_vec()
-    };
-    let largest_singular_value = singular_values.iter().copied().fold(0.0, f64::max);
     let free_singular_values = if free_matrix.nrows() == 0 || free_matrix.ncols() == 0 {
         Vec::new()
     } else {
@@ -305,12 +388,13 @@ pub fn analyze_closure_jacobian(
             .to_vec()
     };
     let largest_free_singular_value = free_singular_values.iter().copied().fold(0.0, f64::max);
-    let scale = largest_singular_value.max(largest_free_singular_value);
-    let tolerance = 1.0e-12 * matrix.nrows().max(matrix.ncols()) as f64 * scale;
-    let rank = if matrix.nrows() == 0 || matrix.ncols() == 0 {
+    let tolerance = 1.0e-12
+        * free_matrix.nrows().max(free_matrix.ncols()).max(1) as f64
+        * largest_free_singular_value;
+    let rank = if free_matrix.nrows() == 0 || free_matrix.ncols() == 0 {
         0
     } else {
-        matrix.clone().svd(false, false).rank(tolerance)
+        free_matrix.clone().svd(false, false).rank(tolerance)
     };
     let mut selected_columns = Vec::new();
 
@@ -327,7 +411,13 @@ pub fn analyze_closure_jacobian(
         }
     }
 
-    if selected_columns.len() != rank {
+    let residuals = closure_residuals(problem, &tree_poses_for_candidates(problem, candidates));
+    if selected_columns.len() != rank
+        || (rank == 0
+            && residuals
+                .iter()
+                .any(|value| !value.is_finite() || value.abs() > tolerance))
+    {
         return Err(JacobianError::InsufficientCandidateRank {
             rank,
             selected: selected_columns.len(),
@@ -394,12 +484,18 @@ pub fn closure_orientation_residuals(problem: &PreparedProblem, poses: &BodyPose
             let actual_displacement =
                 (actual * coordinate.reference_orientation().inverse()).scaled_axis();
             let requested = coordinate.displacement().rotation();
+            let canonical_requested = UnitQuaternion::from_scaled_axis(Vector3::new(
+                requested.x.unwrap_or(0.0),
+                requested.y.unwrap_or(0.0),
+                requested.z.unwrap_or(0.0),
+            ))
+            .scaled_axis();
 
             [requested.x, requested.y, requested.z]
                 .into_iter()
                 .enumerate()
                 .filter_map(move |(index, requested)| {
-                    requested.map(|requested| actual_displacement[index] - requested)
+                    requested.map(|_| actual_displacement[index] - canonical_requested[index])
                 })
         })
         .collect()
@@ -615,8 +711,23 @@ pub fn spherical_child_pose(
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum SolverError {
-    #[error("closed-loop mechanisms are not supported by the solver yet")]
-    ClosedLoopsUnsupported,
+    #[error(transparent)]
+    Jacobian(#[from] JacobianError),
+    #[error("closed-loop residual is non-finite")]
+    NonFiniteResidual,
+    #[error("closed-loop Newton step is non-finite")]
+    NonFiniteStep,
+    #[error("closed-loop residual has no independent coordinates")]
+    NoIndependentCoordinates,
+    #[error("closed-loop linear solve failed: {0}")]
+    LinearSolveFailed(&'static str),
+    #[error(
+        "closed-loop solve did not converge after {iterations} iterations (residual norm {residual_norm:e})"
+    )]
+    NonConvergent {
+        iterations: usize,
+        residual_norm: f64,
+    },
 }
 
 #[derive(Debug, Error)]
@@ -980,7 +1091,7 @@ joints:
         assert!(matches!(
             analyze_closure_jacobian(&problem, &BTreeMap::new()),
             Err(JacobianError::InsufficientCandidateRank {
-                rank: 2,
+                rank: 0,
                 selected: 0
             })
         ));
