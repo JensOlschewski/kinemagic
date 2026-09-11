@@ -1,7 +1,7 @@
 use kinemagic::io::yaml::parse_yaml_str;
 use kinemagic::model::{BodyId, JointId};
 use kinemagic::problem::{PreparedProblem, TraversalDirection, prepare};
-use kinemagic::solve::{BodyPose, BodyPoses, solve};
+use kinemagic::solve::{BodyPose, BodyPoses, solve, solve_at};
 use nalgebra::{UnitQuaternion, Vector3};
 
 const TOLERANCE: f64 = 1.0e-12;
@@ -97,6 +97,25 @@ fn solves_reordered_chain_with_simultaneous_motions() {
 }
 
 #[test]
+fn solves_open_tree_at_positive_and_negative_times() {
+    let problem = prepared(include_str!("fixtures/spherical_one_body_time_motion.yaml"));
+
+    let positive = solve_at(&problem, 2.0).unwrap();
+    let negative = solve_at(&problem, -2.0).unwrap();
+
+    assert_pose_close(
+        positive.get(BodyId::new(1)).unwrap(),
+        Vector3::new(-34.202014332567, 0.0, -93.969262078591),
+        UnitQuaternion::from_axis_angle(&Vector3::y_axis(), 20.0_f64.to_radians()),
+    );
+    assert_pose_close(
+        negative.get(BodyId::new(1)).unwrap(),
+        Vector3::new(34.202014332567, 0.0, -93.969262078591),
+        UnitQuaternion::from_axis_angle(&Vector3::y_axis(), -20.0_f64.to_radians()),
+    );
+}
+
+#[test]
 fn solving_is_repeatable_without_mutating_problem() {
     let problem = prepared(include_str!("fixtures/spherical_two_body_motion.yaml"));
 
@@ -124,6 +143,21 @@ fn solves_closed_loop_problem() {
     assert_complete(&problem, &poses);
     assert!(
         kinemagic::solve::closure_position_residuals(&problem, &poses,)
+            .iter()
+            .all(|residual| residual.norm() < 1.0e-8)
+    );
+}
+
+#[test]
+fn solves_time_dependent_closed_loop_problem() {
+    let yaml = include_str!("../examples/spherical_one_body_closed_loop_motion.yaml")
+        .replace("      rot_z: 90", "      rot_z: \"5*time\"");
+    let problem = prepared(&yaml);
+    let poses = solve_at(&problem, 2.0).unwrap();
+
+    assert_complete(&problem, &poses);
+    assert!(
+        kinemagic::solve::closure_position_residuals(&problem, &poses)
             .iter()
             .all(|residual| residual.norm() < 1.0e-8)
     );

@@ -1,0 +1,37 @@
+hardpoints:
+  P1: [0.0, 0.0, 0.0]
+bodies:
+  B1:
+    body_id: 1
+    side: single
+    position: [0.0, 0.0, -100.0]
+    orientation:
+      method: euler
+      euler_angles: [0, 0, 0]
+    points_on_body: [P1]
+joints:
+  J1:
+    joint_id: 1
+    kind: spherical
+    i:
+      body_id: 0
+      position: P1
+      orientation:
+        method: euler
+        euler_angles: [0, 0, 0]
+    j:
+      body_id: 1
+      position: P1
+      orientation:
+        method: euler
+        euler_angles: [0, 0, 0]
+motions:
+  RotateJ1:
+    kind: joint-coordinates
+    joint_id: 1
+    displacement:
+      rot_y: "10*time"
+solver:
+  start_time: 0.0
+  end_time: 0.2
+  step_size: 0.1

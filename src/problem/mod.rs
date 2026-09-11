@@ -4,7 +4,7 @@ pub mod tree;
 use nalgebra::{UnitQuaternion, Vector3};
 use thiserror::Error;
 
-use crate::model::{BodyId, Input, JointId, Model};
+use crate::model::{BodyId, Input, JointId, Model, SolverSettings};
 use coordinates::resolve_joint_coordinates;
 pub use tree::{TraversalDirection, build_kinematic_topology};
 
@@ -21,6 +21,10 @@ pub struct PreparedProblem {
 impl PreparedProblem {
     pub fn model(&self) -> &Model {
         self.input.model()
+    }
+
+    pub fn solver(&self) -> SolverSettings {
+        self.input.solver()
     }
 
     pub fn tree_edges(&self) -> &[PreparedTreeEdge] {
@@ -90,7 +94,17 @@ impl PreparedTreeEdge {
     }
 
     pub fn traversal_relative_orientation(&self, candidate: Vector3<f64>) -> UnitQuaternion<f64> {
-        let orientation = self.joint_coordinate.relative_orientation_for(candidate);
+        self.traversal_relative_orientation_at(0.0, candidate)
+    }
+
+    pub fn traversal_relative_orientation_at(
+        &self,
+        time: f64,
+        candidate: Vector3<f64>,
+    ) -> UnitQuaternion<f64> {
+        let orientation = self
+            .joint_coordinate
+            .relative_orientation_at(time, candidate);
 
         match self.direction {
             TraversalDirection::IToJ => orientation,

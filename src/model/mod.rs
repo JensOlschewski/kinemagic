@@ -6,11 +6,20 @@ use thiserror::Error;
 pub struct Input {
     model: Model,
     motions: Vec<Motion>,
+    solver: SolverSettings,
 }
 
 impl Input {
     pub fn new(model: Model, motions: Vec<Motion>) -> Self {
-        Self { model, motions }
+        Self::with_solver(model, motions, SolverSettings::defaults())
+    }
+
+    pub fn with_solver(model: Model, motions: Vec<Motion>, solver: SolverSettings) -> Self {
+        Self {
+            model,
+            motions,
+            solver,
+        }
     }
 
     pub fn model(&self) -> &Model {
@@ -19,6 +28,50 @@ impl Input {
 
     pub fn motions(&self) -> &[Motion] {
         &self.motions
+    }
+
+    pub fn solver(&self) -> SolverSettings {
+        self.solver
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SolverSettings {
+    start_time: f64,
+    end_time: f64,
+    step_size: f64,
+}
+
+impl SolverSettings {
+    pub const fn defaults() -> Self {
+        Self {
+            start_time: 0.0,
+            end_time: 0.0,
+            step_size: 1.0,
+        }
+    }
+
+    pub fn new(start_time: f64, end_time: f64, step_size: f64) -> Self {
+        Self {
+            start_time,
+            end_time,
+            step_size,
+        }
+    }
+
+    pub fn start_time(&self) -> f64 {
+        self.start_time
+    }
+    pub fn end_time(&self) -> f64 {
+        self.end_time
+    }
+    pub fn step_size(&self) -> f64 {
+        self.step_size
+    }
+
+    pub fn times(&self) -> impl Iterator<Item = f64> {
+        let count = ((self.end_time - self.start_time) / self.step_size).round() as usize;
+        (0..=count).map(move |index| self.start_time + index as f64 * self.step_size)
     }
 }
 
@@ -380,15 +433,48 @@ pub enum MotionKind {
 pub struct JointDisplacement {
     // Add more joints later here
     rotation: Vector3<Option<f64>>,
+    rotation_rate: Vector3<Option<f64>>,
 }
 
 impl JointDisplacement {
     pub fn new(rotation: Vector3<Option<f64>>) -> Self {
-        Self { rotation }
+        let rotation_rate = rotation.map(|value| value.map(|_| 0.0));
+        Self {
+            rotation,
+            rotation_rate,
+        }
+    }
+
+    pub fn with_rates(rotation: Vector3<Option<f64>>, rotation_rate: Vector3<Option<f64>>) -> Self {
+        Self {
+            rotation,
+            rotation_rate,
+        }
     }
 
     pub fn rotation(&self) -> &Vector3<Option<f64>> {
         &self.rotation
+    }
+
+    pub fn rotation_rate(&self) -> &Vector3<Option<f64>> {
+        &self.rotation_rate
+    }
+
+    pub fn at(&self, time: f64) -> Self {
+        Self::with_rates(
+            Vector3::new(
+                self.rotation
+                    .x
+                    .map(|value| value + self.rotation_rate.x.unwrap_or(0.0) * time),
+                self.rotation
+                    .y
+                    .map(|value| value + self.rotation_rate.y.unwrap_or(0.0) * time),
+                self.rotation
+                    .z
+                    .map(|value| value + self.rotation_rate.z.unwrap_or(0.0) * time),
+            ),
+            self.rotation_rate,
+        )
     }
 }
 

@@ -61,12 +61,26 @@ impl JointCoordinate {
             * self.reference_orientation
     }
 
+    pub fn relative_orientation_at(
+        &self,
+        time: f64,
+        candidate: Vector3<f64>,
+    ) -> UnitQuaternion<f64> {
+        UnitQuaternion::from_scaled_axis(self.resolve_displacement_at(time, candidate))
+            * self.reference_orientation
+    }
+
     /// Resolves the joint displacement.
     ///
     /// Components prescribed by the joint override the corresponding components
     /// of `candidate`. Unprescribed components are taken from `candidate`.
     pub fn resolve_displacement(&self, candidate: Vector3<f64>) -> Vector3<f64> {
-        let prescribed = self.displacement.rotation();
+        self.resolve_displacement_at(0.0, candidate)
+    }
+
+    pub fn resolve_displacement_at(&self, time: f64, candidate: Vector3<f64>) -> Vector3<f64> {
+        let displacement = self.displacement.at(time);
+        let prescribed = displacement.rotation();
 
         Vector3::new(
             prescribed.x.unwrap_or(candidate.x),
@@ -359,9 +373,10 @@ mod tests {
         )])
         .unwrap();
 
-        let input = Input::new(
+        let input = Input::with_solver(
             Model::new(bodies, joints).unwrap(),
             vec![motion("rotate", JointId::new(1), requested)],
+            SolverSettings::defaults(),
         );
 
         let coordinates = resolve_joint_coordinates(&input).unwrap();
@@ -432,6 +447,24 @@ mod tests {
     }
 
     #[test]
+    fn evaluates_linear_displacement_at_requested_time() {
+        let coordinate = JointCoordinate::new(
+            UnitQuaternion::identity(),
+            JointDisplacement::with_rates(
+                Vector3::new(Some(0.2), None, Some(-0.6)),
+                Vector3::new(Some(0.1), None, Some(0.3)),
+            ),
+        );
+
+        let expected = Vector3::new(0.4, 0.5, -0.0);
+        assert!(
+            (coordinate.resolve_displacement_at(2.0, Vector3::new(9.0, 0.5, 9.0)) - expected)
+                .norm()
+                < 1.0e-12
+        );
+    }
+
+    #[test]
     fn lists_free_components_in_authored_order() {
         let coordinate = JointCoordinate::new(
             UnitQuaternion::identity(),
@@ -458,7 +491,11 @@ mod tests {
         )])
         .unwrap();
 
-        Input::new(Model::new(bodies, joints).unwrap(), motions)
+        Input::with_solver(
+            Model::new(bodies, joints).unwrap(),
+            motions,
+            SolverSettings::defaults(),
+        )
     }
 
     fn body(id: BodyId, position: Vector3<f64>) -> Body {

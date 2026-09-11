@@ -13,6 +13,19 @@ pub fn render_body_poses(poses: &BodyPoses) -> String {
     output
 }
 
+pub fn render_frames(frames: &[(f64, BodyPoses)]) -> String {
+    if frames.len() == 1 {
+        return render_body_poses(&frames[0].1);
+    }
+
+    let mut output = String::new();
+    for (index, (time, poses)) in frames.iter().enumerate() {
+        output.push_str(&format!("frame {index} time {}\n", format_number(*time)));
+        output.push_str(&render_body_poses(poses));
+    }
+    output
+}
+
 fn render_body_pose(body_id: BodyId, pose: &BodyPose) -> String {
     let [w, x, y, z] = canonical_quaternion(pose);
 

@@ -105,7 +105,10 @@ joints:
     let displacement = Vector3::new(0.4, -0.3, 0.2);
     let displacement_rate = Vector3::new(-0.2, 0.5, 0.7);
 
-    assert_eq!(edge.direction(), kinemagic::problem::TraversalDirection::JToI);
+    assert_eq!(
+        edge.direction(),
+        kinemagic::problem::TraversalDirection::JToI
+    );
     assert!(
         edge.traversal_relative_orientation(displacement)
             .angle_to(&UnitQuaternion::from_scaled_axis(displacement).inverse())
