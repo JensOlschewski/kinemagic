@@ -29,10 +29,33 @@ pub fn solve(problem: &PreparedProblem) -> Result<BodyPoses, SolverError> {
 }
 
 pub fn solve_at(problem: &PreparedProblem, time: f64) -> Result<BodyPoses, SolverError> {
+    solve_at_internal(problem, time, &mut |_| {})
+}
+
+pub fn solve_at_with_progress<F>(
+    problem: &PreparedProblem,
+    time: f64,
+    mut progress: F,
+) -> Result<BodyPoses, SolverError>
+where
+    F: FnMut(SolverProgress),
+{
+    let result = solve_at_internal(problem, time, &mut progress);
+    if result.is_err() {
+        progress(SolverProgress::Failed);
+    }
+    result
+}
+
+fn solve_at_internal(
+    problem: &PreparedProblem,
+    time: f64,
+    progress: &mut dyn FnMut(SolverProgress),
+) -> Result<BodyPoses, SolverError> {
     validate_time(time)?;
 
     if !problem.closure_joint_ids().is_empty() {
-        return solve_closed_loop(problem, time);
+        return solve_closed_loop(problem, time, progress);
     }
 
     Ok(tree_poses_at(problem, time))
@@ -46,7 +69,11 @@ pub fn validate_time(time: f64) -> Result<(), SolverError> {
     }
 }
 
-fn solve_closed_loop(problem: &PreparedProblem, time: f64) -> Result<BodyPoses, SolverError> {
+fn solve_closed_loop(
+    problem: &PreparedProblem,
+    time: f64,
+    progress: &mut dyn FnMut(SolverProgress),
+) -> Result<BodyPoses, SolverError> {
     let mut candidates = BTreeMap::new();
 
     for iteration in 0..CLOSED_LOOP_MAX_ITERATIONS {
@@ -56,7 +83,15 @@ fn solve_closed_loop(problem: &PreparedProblem, time: f64) -> Result<BodyPoses, 
         if !residual_norm.is_finite() {
             return Err(SolverError::NonFiniteResidual);
         }
+        progress(SolverProgress::Residual {
+            iteration: iteration + 1,
+            residual_norm,
+        });
         if residual_norm <= CLOSED_LOOP_RESIDUAL_TOLERANCE {
+            progress(SolverProgress::Converged {
+                iterations: iteration,
+                residual_norm,
+            });
             return Ok(poses);
         }
 
@@ -113,6 +148,13 @@ fn solve_closed_loop(problem: &PreparedProblem, time: f64) -> Result<BodyPoses, 
                 residual_norm,
             });
         };
+        progress(SolverProgress::StepAccepted {
+            iteration: iteration + 1,
+            residual_norm,
+            step_norm: accepted_step_norm,
+            damping_factor: accepted_step_norm / step.norm(),
+            selected_rank: analysis.rank(),
+        });
         candidates = updated_candidates;
 
         if accepted_step_norm <= CLOSED_LOOP_STEP_TOLERANCE {
@@ -123,6 +165,10 @@ fn solve_closed_loop(problem: &PreparedProblem, time: f64) -> Result<BodyPoses, 
                 return Err(SolverError::NonFiniteResidual);
             }
             if updated_residual_norm <= CLOSED_LOOP_RESIDUAL_TOLERANCE {
+                progress(SolverProgress::Converged {
+                    iterations: iteration + 1,
+                    residual_norm: updated_residual_norm,
+                });
                 return Ok(updated_poses);
             }
             return Err(SolverError::NonConvergent {
@@ -791,6 +837,26 @@ pub fn spherical_child_pose(
         parent.marker_position(i_marker) - child_orientation.transform_vector(&j_marker.position());
 
     BodyPose::new(child_position, child_orientation)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum SolverProgress {
+    Residual {
+        iteration: usize,
+        residual_norm: f64,
+    },
+    StepAccepted {
+        iteration: usize,
+        residual_norm: f64,
+        step_norm: f64,
+        damping_factor: f64,
+        selected_rank: usize,
+    },
+    Converged {
+        iterations: usize,
+        residual_norm: f64,
+    },
+    Failed,
 }
 
 #[derive(Debug, Error)]

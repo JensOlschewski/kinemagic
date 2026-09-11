@@ -1,7 +1,9 @@
 use kinemagic::io::yaml::parse_yaml_str;
 use kinemagic::model::{BodyId, JointId};
 use kinemagic::problem::{PreparedProblem, TraversalDirection, prepare};
-use kinemagic::solve::{BodyPose, BodyPoses, solve, solve_at};
+use kinemagic::solve::{
+    BodyPose, BodyPoses, SolverProgress, solve, solve_at, solve_at_with_progress,
+};
 use nalgebra::{UnitQuaternion, Vector3};
 
 const TOLERANCE: f64 = 1.0e-12;
@@ -160,6 +162,29 @@ fn solves_time_dependent_closed_loop_problem() {
         kinemagic::solve::closure_position_residuals(&problem, &poses)
             .iter()
             .all(|residual| residual.norm() < 1.0e-8)
+    );
+}
+
+#[test]
+fn reports_closed_loop_progress() {
+    let yaml = format!(
+        "{}\n  RotateJ2:\n    kind: joint-coordinates\n    joint_id: 2\n    displacement:\n      rot_z: -90\n",
+        include_str!("../examples/spherical_one_body_closed_loop_motion.yaml")
+    );
+    let problem = prepared(&yaml);
+    let mut events = Vec::new();
+
+    solve_at_with_progress(&problem, 0.0, |event| events.push(event)).unwrap();
+
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, SolverProgress::Residual { .. }))
+    );
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, SolverProgress::Converged { .. }))
     );
 }
 
