@@ -7,7 +7,7 @@ use thiserror::Error;
 
 use crate::model::{
     Bodies, Body, BodyId, Input, Joint, JointDisplacement, JointId, JointKind, JointRole, Joints,
-    Marker, Model, ModelBuildError, Motion, MotionKind, Point,
+    Marker, Model, ModelBuildError, Motion, MotionKind, Point, SolverSettings,
 };
 
 #[derive(Debug, Deserialize)]
@@ -20,6 +20,8 @@ pub struct YamlInput {
     pub joints: BTreeMap<String, YamlJoint>,
     #[serde(default)]
     pub motions: BTreeMap<String, YamlMotion>,
+    #[serde(default)]
+    pub solver: YamlSolverSettings,
 }
 
 impl YamlInput {
@@ -31,6 +33,7 @@ impl YamlInput {
             bodies,
             joints,
             motions,
+            solver,
         } = self;
 
         let body_values = bodies
@@ -69,9 +72,9 @@ impl YamlInput {
         let motions = motions
             .into_iter()
             .map(|(name, motion)| motion.into_motion(name))
-            .collect();
+            .collect::<Result<Vec<Motion>, YamlError>>()?;
 
-        Ok(Input::new(model, motions))
+        Ok(Input::with_solver(model, motions, solver.to_settings()?))
     }
 
     fn validate(&self) -> Result<(), YamlError> {
@@ -112,6 +115,8 @@ impl YamlInput {
         for (name, motion) in &self.motions {
             motion.validate(name, &format!("motions.{name}.displacement"))?;
         }
+
+        self.solver.validate()?;
 
         Ok(())
     }
@@ -230,7 +235,7 @@ impl YamlJoint {
 pub struct YamlMotion {
     kind: YamlMotionKind,
     joint_id: u32,
-    displacement: BTreeMap<YamlJointDisplacement, f64>,
+    displacement: BTreeMap<YamlJointDisplacement, YamlDisplacementValue>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -240,27 +245,45 @@ enum YamlMotionKind {
 }
 
 impl YamlMotion {
-    fn into_motion(self, name: String) -> Motion {
+    fn into_motion(self, name: String) -> Result<Motion, YamlError> {
         let mut rotation = Vector3::new(None, None, None);
+        let mut rotation_rate = Vector3::new(None, None, None);
 
-        for (component, degrees) in self.displacement {
-            let radians = Some(degrees.to_radians());
+        for (component, value) in self.displacement {
+            let (initial, rate) = match value {
+                YamlDisplacementValue::Static(initial) => (initial, 0.0),
+                YamlDisplacementValue::Expression(expression) => (
+                    0.0,
+                    parse_time_expression(&expression, &format!("{name}.{component:?}"))?,
+                ),
+            };
+            let initial = Some(initial.to_radians());
+            let rate = Some(rate.to_radians());
 
             match component {
-                YamlJointDisplacement::RotX => rotation.x = radians,
-                YamlJointDisplacement::RotY => rotation.y = radians,
-                YamlJointDisplacement::RotZ => rotation.z = radians,
+                YamlJointDisplacement::RotX => {
+                    rotation.x = initial;
+                    rotation_rate.x = rate;
+                }
+                YamlJointDisplacement::RotY => {
+                    rotation.y = initial;
+                    rotation_rate.y = rate;
+                }
+                YamlJointDisplacement::RotZ => {
+                    rotation.z = initial;
+                    rotation_rate.z = rate;
+                }
             }
         }
 
-        match self.kind {
+        Ok(match self.kind {
             YamlMotionKind::JointCoordinates => Motion::new(
                 name,
                 MotionKind::JointCoordinates,
                 JointId::new(self.joint_id),
-                JointDisplacement::new(rotation),
+                JointDisplacement::with_rates(rotation, rotation_rate),
             ),
-        }
+        })
     }
 
     fn validate(&self, motion_name: &str, path: &str) -> Result<(), YamlError> {
@@ -276,12 +299,104 @@ impl YamlMotion {
                 YamlJointDisplacement::RotY => "rot_y",
                 YamlJointDisplacement::RotZ => "rot_z",
             };
-            let component_path = format!("{path}.{component_name}");
-            validate_finite_value(&component_path, *value)?;
+            match value {
+                YamlDisplacementValue::Static(initial) => {
+                    validate_finite_value(&format!("{path}.{component_name}"), *initial)?;
+                }
+                YamlDisplacementValue::Expression(expression) => {
+                    parse_time_expression(expression, &format!("{path}.{component_name}"))?;
+                }
+            }
         }
 
         Ok(())
     }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum YamlDisplacementValue {
+    Static(f64),
+    Expression(String),
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct YamlSolverSettings {
+    #[serde(default)]
+    start_time: f64,
+    #[serde(default)]
+    end_time: f64,
+    #[serde(default = "default_step_size")]
+    step_size: f64,
+}
+
+impl Default for YamlSolverSettings {
+    fn default() -> Self {
+        Self {
+            start_time: 0.0,
+            end_time: 0.0,
+            step_size: default_step_size(),
+        }
+    }
+}
+
+impl YamlSolverSettings {
+    fn validate(&self) -> Result<(), YamlError> {
+        let settings = self.to_settings()?;
+        let interval = settings.end_time() - settings.start_time();
+        let count = interval / settings.step_size();
+        if !count.is_finite() || (count - count.round()).abs() > 1.0e-10 {
+            return Err(YamlError::UnrepresentableInterval);
+        }
+        Ok(())
+    }
+
+    fn to_settings(&self) -> Result<SolverSettings, YamlError> {
+        let settings = SolverSettings::new(self.start_time, self.end_time, self.step_size);
+        for (path, value) in [
+            ("solver.start_time", settings.start_time()),
+            ("solver.end_time", settings.end_time()),
+            ("solver.step_size", settings.step_size()),
+        ] {
+            validate_finite_value(path, value)?;
+        }
+        if settings.step_size() <= 0.0 {
+            return Err(YamlError::NonPositiveStepSize);
+        }
+        if settings.end_time() < settings.start_time() {
+            return Err(YamlError::InvalidTimeRange);
+        }
+        Ok(settings)
+    }
+}
+
+fn default_step_size() -> f64 {
+    1.0
+}
+
+fn parse_time_expression(expression: &str, path: &str) -> Result<f64, YamlError> {
+    let parts = expression.trim().split('*').collect::<Vec<_>>();
+    if parts.len() != 2 || parts[1].trim() != "time" {
+        return Err(YamlError::InvalidExpression {
+            path: path.to_owned(),
+            expression: expression.to_owned(),
+        });
+    }
+    let coefficient = parts[0]
+        .trim()
+        .parse::<f64>()
+        .map_err(|_| YamlError::InvalidExpression {
+            path: path.to_owned(),
+            expression: expression.to_owned(),
+        })?;
+    if !coefficient.is_finite() {
+        return Err(YamlError::NonFinite {
+            path: path.to_owned(),
+            value: coefficient,
+        });
+    }
+    Ok(coefficient)
 }
 
 #[derive(Debug, Deserialize, Ord, PartialOrd, Eq, PartialEq)]
@@ -472,6 +587,14 @@ pub enum YamlError {
     EmptyMotionDisplacement { name: String },
     #[error("non-finite value `{value}` at `{path}`")]
     NonFinite { path: String, value: f64 },
+    #[error("invalid time expression `{expression}` at `{path}`")]
+    InvalidExpression { path: String, expression: String },
+    #[error("solver step_size must be positive")]
+    NonPositiveStepSize,
+    #[error("solver end_time must be greater than or equal to start_time")]
+    InvalidTimeRange,
+    #[error("solver interval is not representable by step_size")]
+    UnrepresentableInterval,
     #[error(transparent)]
     Model(#[from] ModelBuildError),
 }
@@ -597,6 +720,47 @@ mod tests {
         assert_eq!(actual, &requested);
 
         Ok(())
+    }
+
+    #[test]
+    fn converts_time_dependent_joint_coordinate_motion_into_input() -> Result<(), YamlError> {
+        let yaml = format!(
+            "{}\nmotions:\n  RotateJ1:\n    kind: joint-coordinates\n    joint_id: 1\n    displacement:\n      rot_y: \"2*time\"\n",
+            include_str!("../../../tests/fixtures/spherical_one_body_parse.yaml")
+        );
+
+        let input = parse_yaml_str(&yaml)?.into_input()?;
+        let motion = &input.motions()[0];
+
+        assert_eq!(
+            motion.joint_displacement().rotation(),
+            &Vector3::new(None, Some(0.0_f64.to_radians()), None)
+        );
+        assert_eq!(
+            motion.joint_displacement().rotation_rate(),
+            &Vector3::new(None, Some(2.0_f64.to_radians()), None)
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_invalid_time_expression_and_solver_interval() {
+        let valid = include_str!("../../../tests/fixtures/spherical_one_body_parse.yaml");
+        let invalid_expression = format!(
+            "{valid}\nmotions:\n  RotateJ1:\n    kind: joint-coordinates\n    joint_id: 1\n    displacement:\n      rot_y: \"sin(time)\"\n"
+        );
+        assert!(matches!(
+            parse_yaml_str(&invalid_expression).unwrap().into_input(),
+            Err(YamlError::InvalidExpression { .. })
+        ));
+
+        let invalid_interval =
+            format!("{valid}\nsolver:\n  start_time: 0.0\n  end_time: 0.3\n  step_size: 0.2\n");
+        assert!(matches!(
+            parse_yaml_str(&invalid_interval).unwrap().into_input(),
+            Err(YamlError::UnrepresentableInterval)
+        ));
     }
 
     #[test]

@@ -25,19 +25,33 @@ impl BodyPoses {
 }
 
 pub fn solve(problem: &PreparedProblem) -> Result<BodyPoses, SolverError> {
-    if !problem.closure_joint_ids().is_empty() {
-        return solve_closed_loop(problem);
-    }
-
-    Ok(tree_poses(problem))
+    solve_at(problem, 0.0)
 }
 
-fn solve_closed_loop(problem: &PreparedProblem) -> Result<BodyPoses, SolverError> {
+pub fn solve_at(problem: &PreparedProblem, time: f64) -> Result<BodyPoses, SolverError> {
+    validate_time(time)?;
+
+    if !problem.closure_joint_ids().is_empty() {
+        return solve_closed_loop(problem, time);
+    }
+
+    Ok(tree_poses_at(problem, time))
+}
+
+pub fn validate_time(time: f64) -> Result<(), SolverError> {
+    if time.is_finite() {
+        Ok(())
+    } else {
+        Err(SolverError::NonFiniteTime { time })
+    }
+}
+
+fn solve_closed_loop(problem: &PreparedProblem, time: f64) -> Result<BodyPoses, SolverError> {
     let mut candidates = BTreeMap::new();
 
     for iteration in 0..CLOSED_LOOP_MAX_ITERATIONS {
-        let poses = tree_poses_for_candidates(problem, &candidates);
-        let residuals = closure_residuals(problem, &poses);
+        let poses = tree_poses_for_candidates_at(problem, &candidates, time);
+        let residuals = closure_residuals_at(problem, &poses, time);
         let residual_norm = DVector::from_vec(residuals.clone()).norm();
         if !residual_norm.is_finite() {
             return Err(SolverError::NonFiniteResidual);
@@ -46,7 +60,7 @@ fn solve_closed_loop(problem: &PreparedProblem) -> Result<BodyPoses, SolverError
             return Ok(poses);
         }
 
-        let analysis = analyze_closure_jacobian(problem, &candidates)?;
+        let analysis = analyze_closure_jacobian_at(problem, &candidates, time)?;
         let selected = analysis.selected_columns();
         if selected.is_empty() {
             return Err(SolverError::NoIndependentCoordinates);
@@ -76,9 +90,9 @@ fn solve_closed_loop(problem: &PreparedProblem) -> Result<BodyPoses, SolverError
                     .entry(joint_id)
                     .or_insert_with(Vector3::zeros)[component] += scale * step[index];
             }
-            let trial_poses = tree_poses_for_candidates(problem, &trial_candidates);
+            let trial_poses = tree_poses_for_candidates_at(problem, &trial_candidates, time);
             let trial_residual_norm =
-                DVector::from_vec(closure_residuals(problem, &trial_poses)).norm();
+                DVector::from_vec(closure_residuals_at(problem, &trial_poses, time)).norm();
             if trial_residual_norm.is_finite() && trial_residual_norm < residual_norm {
                 accepted_step_norm = scale * step.norm();
                 accepted_candidates = Some(trial_candidates);
@@ -94,9 +108,9 @@ fn solve_closed_loop(problem: &PreparedProblem) -> Result<BodyPoses, SolverError
         candidates = updated_candidates;
 
         if accepted_step_norm <= CLOSED_LOOP_STEP_TOLERANCE {
-            let updated_poses = tree_poses_for_candidates(problem, &candidates);
+            let updated_poses = tree_poses_for_candidates_at(problem, &candidates, time);
             let updated_residual_norm =
-                DVector::from_vec(closure_residuals(problem, &updated_poses)).norm();
+                DVector::from_vec(closure_residuals_at(problem, &updated_poses, time)).norm();
             if !updated_residual_norm.is_finite() {
                 return Err(SolverError::NonFiniteResidual);
             }
@@ -110,8 +124,8 @@ fn solve_closed_loop(problem: &PreparedProblem) -> Result<BodyPoses, SolverError
         }
     }
 
-    let poses = tree_poses_for_candidates(problem, &candidates);
-    let residual_norm = DVector::from_vec(closure_residuals(problem, &poses)).norm();
+    let poses = tree_poses_for_candidates_at(problem, &candidates, time);
+    let residual_norm = DVector::from_vec(closure_residuals_at(problem, &poses, time)).norm();
     if !residual_norm.is_finite() {
         return Err(SolverError::NonFiniteResidual);
     }
@@ -122,12 +136,24 @@ fn solve_closed_loop(problem: &PreparedProblem) -> Result<BodyPoses, SolverError
 }
 
 pub fn tree_poses(problem: &PreparedProblem) -> BodyPoses {
-    tree_poses_for_candidates(problem, &BTreeMap::new())
+    tree_poses_at(problem, 0.0)
+}
+
+pub fn tree_poses_at(problem: &PreparedProblem, time: f64) -> BodyPoses {
+    tree_poses_for_candidates_at(problem, &BTreeMap::new(), time)
 }
 
 pub fn tree_poses_for_candidates(
     problem: &PreparedProblem,
     candidates: &BTreeMap<JointId, Vector3<f64>>,
+) -> BodyPoses {
+    tree_poses_for_candidates_at(problem, candidates, 0.0)
+}
+
+pub fn tree_poses_for_candidates_at(
+    problem: &PreparedProblem,
+    candidates: &BTreeMap<JointId, Vector3<f64>>,
+    time: f64,
 ) -> BodyPoses {
     let mut poses = BTreeMap::new();
 
@@ -155,7 +181,8 @@ pub fn tree_poses_for_candidates(
             parent,
             parent_marker,
             child_marker,
-            edge.traversal_relative_orientation(
+            edge.traversal_relative_orientation_at(
+                time,
                 candidates
                     .get(&edge.joint_id())
                     .copied()
@@ -179,17 +206,26 @@ pub fn tree_twist_columns_for_candidates(
     problem: &PreparedProblem,
     candidates: &BTreeMap<JointId, Vector3<f64>>,
 ) -> TreeTwistColumns {
-    let columns = problem.free_primary_coordinates();
-    tree_twist_columns_for_columns(problem, candidates, columns, false)
+    tree_twist_columns_for_candidates_at(problem, candidates, 0.0)
 }
 
-fn tree_twist_columns_for_columns(
+pub fn tree_twist_columns_for_candidates_at(
+    problem: &PreparedProblem,
+    candidates: &BTreeMap<JointId, Vector3<f64>>,
+    time: f64,
+) -> TreeTwistColumns {
+    let columns = problem.free_primary_coordinates();
+    tree_twist_columns_for_columns_at(problem, candidates, columns, false, time)
+}
+
+fn tree_twist_columns_for_columns_at(
     problem: &PreparedProblem,
     candidates: &BTreeMap<JointId, Vector3<f64>>,
     columns: Vec<(JointId, usize)>,
     include_prescribed: bool,
+    time: f64,
 ) -> TreeTwistColumns {
-    let poses = tree_poses_for_candidates(problem, candidates);
+    let poses = tree_poses_for_candidates_at(problem, candidates, time);
     let zero_twist = BodyTwist::new(Vector3::zeros(), Vector3::zeros());
     let mut twists = BTreeMap::from([(BodyId::GROUND, vec![zero_twist; columns.len()])]);
 
@@ -219,7 +255,8 @@ fn tree_twist_columns_for_columns(
         let child_marker_offset = child_pose
             .orientation()
             .transform_vector(&child_marker.position());
-        let displacement = edge.joint_coordinate().resolve_displacement(
+        let displacement = edge.joint_coordinate().resolve_displacement_at(
+            time,
             candidates
                 .get(&edge.joint_id())
                 .copied()
@@ -267,19 +304,33 @@ pub fn closure_jacobian_for_candidates(
     problem: &PreparedProblem,
     candidates: &BTreeMap<JointId, Vector3<f64>>,
 ) -> Result<DMatrix<f64>, ResidualError> {
-    let columns = problem.free_primary_coordinates();
-    closure_jacobian_for_columns(problem, candidates, columns, false)
+    closure_jacobian_for_candidates_at(problem, candidates, 0.0)
 }
 
-fn closure_jacobian_for_columns(
+pub fn closure_jacobian_for_candidates_at(
+    problem: &PreparedProblem,
+    candidates: &BTreeMap<JointId, Vector3<f64>>,
+    time: f64,
+) -> Result<DMatrix<f64>, ResidualError> {
+    let columns = problem.free_primary_coordinates();
+    closure_jacobian_for_columns_at(problem, candidates, columns, false, time)
+}
+
+fn closure_jacobian_for_columns_at(
     problem: &PreparedProblem,
     candidates: &BTreeMap<JointId, Vector3<f64>>,
     columns: Vec<(JointId, usize)>,
     include_prescribed: bool,
+    time: f64,
 ) -> Result<DMatrix<f64>, ResidualError> {
-    let poses = tree_poses_for_candidates(problem, candidates);
-    let (_, body_twist_columns) =
-        tree_twist_columns_for_columns(problem, candidates, columns.clone(), include_prescribed);
+    let poses = tree_poses_for_candidates_at(problem, candidates, time);
+    let (_, body_twist_columns) = tree_twist_columns_for_columns_at(
+        problem,
+        candidates,
+        columns.clone(),
+        include_prescribed,
+        time,
+    );
     let mut column_rates = Vec::with_capacity(columns.len());
 
     for column in 0..columns.len() {
@@ -290,9 +341,10 @@ fn closure_jacobian_for_columns(
         column_rates.push(closure_residual_rates(problem, &poses, &twists)?);
     }
 
-    let row_count = column_rates
-        .first()
-        .map_or_else(|| closure_residuals(problem, &poses).len(), Vec::len);
+    let row_count = column_rates.first().map_or_else(
+        || closure_residuals_at(problem, &poses, time).len(),
+        Vec::len,
+    );
     let mut jacobian = DMatrix::zeros(row_count, columns.len());
 
     for (column, rates) in column_rates.into_iter().enumerate() {
@@ -350,9 +402,17 @@ pub fn analyze_closure_jacobian(
     problem: &PreparedProblem,
     candidates: &BTreeMap<JointId, Vector3<f64>>,
 ) -> Result<ClosureJacobian, JacobianError> {
+    analyze_closure_jacobian_at(problem, candidates, 0.0)
+}
+
+pub fn analyze_closure_jacobian_at(
+    problem: &PreparedProblem,
+    candidates: &BTreeMap<JointId, Vector3<f64>>,
+    time: f64,
+) -> Result<ClosureJacobian, JacobianError> {
     let columns = problem.primary_coordinates();
     let free_columns = problem.free_primary_coordinates();
-    let matrix = closure_jacobian_for_columns(problem, candidates, columns.clone(), true)?;
+    let matrix = closure_jacobian_for_columns_at(problem, candidates, columns.clone(), true, time)?;
     let free_indices = columns
         .iter()
         .enumerate()
@@ -411,7 +471,11 @@ pub fn analyze_closure_jacobian(
         }
     }
 
-    let residuals = closure_residuals(problem, &tree_poses_for_candidates(problem, candidates));
+    let residuals = closure_residuals_at(
+        problem,
+        &tree_poses_for_candidates_at(problem, candidates, time),
+        time,
+    );
     if selected_columns.len() != rank
         || (rank == 0
             && residuals
@@ -461,6 +525,14 @@ pub fn closure_position_residuals(
 }
 
 pub fn closure_orientation_residuals(problem: &PreparedProblem, poses: &BodyPoses) -> Vec<f64> {
+    closure_orientation_residuals_at(problem, poses, 0.0)
+}
+
+fn closure_orientation_residuals_at(
+    problem: &PreparedProblem,
+    poses: &BodyPoses,
+    time: f64,
+) -> Vec<f64> {
     problem
         .closure_joint_ids()
         .iter()
@@ -483,7 +555,8 @@ pub fn closure_orientation_residuals(problem: &PreparedProblem, poses: &BodyPose
                 * j_pose.marker_orientation(joint.j_marker());
             let actual_displacement =
                 (actual * coordinate.reference_orientation().inverse()).scaled_axis();
-            let requested = coordinate.displacement().rotation();
+            let requested_displacement = coordinate.displacement().at(time);
+            let requested = requested_displacement.rotation();
             let canonical_requested = UnitQuaternion::from_scaled_axis(Vector3::new(
                 requested.x.unwrap_or(0.0),
                 requested.y.unwrap_or(0.0),
@@ -667,12 +740,16 @@ pub fn closure_orientation_residual_rates(
 }
 
 pub fn closure_residuals(problem: &PreparedProblem, poses: &BodyPoses) -> Vec<f64> {
+    closure_residuals_at(problem, poses, 0.0)
+}
+
+fn closure_residuals_at(problem: &PreparedProblem, poses: &BodyPoses, time: f64) -> Vec<f64> {
     let position_rows = closure_position_residuals(problem, poses)
         .into_iter()
         .flat_map(|residual| [residual.x, residual.y, residual.z]);
 
     position_rows
-        .chain(closure_orientation_residuals(problem, poses))
+        .chain(closure_orientation_residuals_at(problem, poses, time))
         .collect()
 }
 
@@ -711,6 +788,8 @@ pub fn spherical_child_pose(
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum SolverError {
+    #[error("evaluation time is non-finite: {time}")]
+    NonFiniteTime { time: f64 },
     #[error(transparent)]
     Jacobian(#[from] JacobianError),
     #[error("closed-loop residual is non-finite")]

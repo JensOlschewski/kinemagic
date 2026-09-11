@@ -1,0 +1,131 @@
+# Kinemagic example: one body connected to ground in a closed loop by two
+# spherical joints.
+#
+# Run:
+#   km check examples/spherical_one_body_closed_loop_motion.yaml
+#   km solve examples/spherical_one_body_closed_loop_motion.yaml
+
+hardpoints:
+  P1: [0.0, 0.0, 0.0]
+  P2: [0.0, 0.0, 200.0]
+  P3: [200.0, 0.0, 200.0]
+  P4: [200.0, 0.0, 0.0]
+bodies:
+  B1:
+    body_id: 1
+    side: single
+    position: [0.0, 0.0, 100.0]
+    orientation:
+      method: euler
+      euler_angles: [0, 0, 0]
+    points_on_body: [P1, P2]
+  B2:
+    body_id: 2
+    side: single
+    position: [100.0, 0.0, 200.0]
+    orientation:
+      method: euler
+      euler_angles: [0, 0, 0]
+    points_on_body: [P2, P3]
+  B3:
+    body_id: 3
+    side: single
+    position: [200.0, 0.0, 100.0]
+    orientation:
+      method: euler
+      euler_angles: [0, 0, 0]
+    points_on_body: [P3, P4]
+
+# --------------
+# --- JOINTS ---
+# --------------
+joints:
+  J1:
+    joint_id: 1
+    kind: spherical
+    i:
+      body_id: 0
+      position: P1
+      orientation:
+        method: euler
+        euler_angles: [0, 0, 0]
+    j:
+      body_id: 1
+      position: P1
+      orientation:
+        method: euler
+        euler_angles: [0, 0, 0]
+  J2:
+    joint_id: 2
+    kind: spherical
+    i:
+      body_id: 1
+      position: P2
+      orientation:
+        method: euler
+        euler_angles: [0, 0, 0]
+    j:
+      body_id: 2
+      position: P2
+      orientation:
+        method: euler
+        euler_angles: [0, 0, 0]
+  J3:
+    joint_id: 3
+    kind: spherical
+    i:
+      body_id: 2
+      position: P3
+      orientation:
+        method: euler
+        euler_angles: [0, 0, 0]
+    j:
+      body_id: 3
+      position: P3
+      orientation:
+        method: euler
+        euler_angles: [0, 0, 0]
+  J4:
+    joint_id: 4
+    kind: spherical
+    i:
+      body_id: 3
+      position: P4
+      orientation:
+        method: euler
+        euler_angles: [0, 0, 0]
+    j:
+      body_id: 0
+      position: P4
+      orientation:
+        method: euler
+        euler_angles: [0, 0, 0]
+
+# --------------
+# --- Motions ---
+# --------------
+
+motions:
+  RotateJ1:
+    kind: joint-coordinates
+    joint_id: 1
+    displacement:
+      rot_x: 0
+      rot_y: "1 *time"
+      rot_z: 0
+  RotateJ2:
+    kind: joint-coordinates
+    joint_id: 2
+    displacement:
+      rot_x: 0
+      rot_z: 0
+  RotateJ3:
+    kind: joint-coordinates
+    joint_id: 3
+    displacement:
+      rot_x: 0
+      rot_z: 0
+solver:
+   start_time: 0
+   end_time: 10
+   step_size: 0.01

@@ -6,6 +6,7 @@ const MALFORMED: &str = "tests/fixtures/malformed.yaml";
 const NOT_SOLVE_READY: &str = "tests/fixtures/spherical_duplicate_motion.yaml";
 const MISSING: &str = "tests/fixtures/missing.yaml";
 const DOCUMENTED_EXAMPLE: &str = "examples/spherical_one_body_motion.yaml";
+const TIME_MOTION: &str = "tests/fixtures/spherical_one_body_time_motion.yaml";
 
 const EXPECTED_ONE_BODY: &str =
     include_str!("fixtures/spherical_one_body_parse_expected_output.txt");
@@ -55,6 +56,16 @@ fn solve_renders_two_body_motion_problem() {
     assert!(output.status.success());
     assert!(output.stderr.is_empty());
     assert_eq!(String::from_utf8(output.stdout).unwrap(), EXPECTED_TWO_BODY);
+}
+
+#[test]
+fn solve_renders_explicit_multi_frame_output() {
+    let output = run("solve", TIME_MOTION);
+    let stdout = String::from_utf8(output.stdout).unwrap();
+
+    assert!(output.status.success());
+    assert!(stdout.contains("frame 0 time 0.000000000000\n"));
+    assert!(stdout.contains("frame 2 time 0.200000000000\n"));
 }
 
 #[test]
