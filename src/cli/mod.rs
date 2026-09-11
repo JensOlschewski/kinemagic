@@ -28,6 +28,8 @@ pub struct CheckArgs {
 #[derive(Args)]
 pub struct SolveArgs {
     input: PathBuf,
+    #[arg(long)]
+    progress: bool,
 }
 
 #[cfg(test)]
@@ -77,6 +79,7 @@ mod tests {
     fn solve_fails_for_missing_file() {
         let result = solve::run(SolveArgs {
             input: "missing.yaml".into(),
+            progress: false,
         });
 
         assert!(result.is_err());

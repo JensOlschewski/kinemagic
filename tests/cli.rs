@@ -94,7 +94,25 @@ fn solve_renders_closed_loop_problem() {
 
     assert!(output.status.success());
     assert!(output.stderr.is_empty());
-    assert_eq!(String::from_utf8(output.stdout).unwrap(), EXPECTED_CLOSED_LOOP);
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        EXPECTED_CLOSED_LOOP
+    );
+}
+
+#[test]
+fn solve_renders_closed_loop_progress_to_stderr() {
+    let output = run_with_args("solve", CLOSED_LOOP_EXAMPLE, &["--progress"]);
+    let stderr = String::from_utf8(output.stderr).unwrap();
+
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        EXPECTED_CLOSED_LOOP
+    );
+    assert!(stderr.contains("Current Step Current Time    Progress (%)"));
+    assert!(stderr.contains("------------ -------------   ------------"));
+    assert!(stderr.contains("1            0.00e0          100.00"));
 }
 
 #[test]
@@ -149,8 +167,13 @@ fn assert_check_fails_with_path(path: &str) {
 }
 
 fn run(command: &str, path: &str) -> Output {
+    run_with_args(command, path, &[])
+}
+
+fn run_with_args(command: &str, path: &str, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_km"))
         .args([command, path])
+        .args(args)
         .output()
         .unwrap()
 }
