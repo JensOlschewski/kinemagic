@@ -1,11 +1,18 @@
 use std::io::{self, Write};
 
-use crate::cli::SolveArgs;
-use kinemagic::io::{load_and_prepare, text::render_frames};
+use anyhow::{Context, Result};
+use kinemagic::io::{load_file, text::render_frames};
+use kinemagic::problem::prepare;
 use kinemagic::solve::solve_at;
 
-pub fn run(args: SolveArgs) -> Result<(), Box<dyn std::error::Error>> {
-    let problem = load_and_prepare(&args.input)?;
+use crate::cli::SolveArgs;
+
+pub fn run(args: SolveArgs) -> Result<()> {
+    let input = load_file(&args.input)?;
+
+    let problem =
+        prepare(input).with_context(|| format!("failed to prepare `{}`", args.input.display()))?;
+
     let times = problem.solver().times().collect::<Vec<_>>();
     let mut frames = Vec::new();
     let mut stderr = io::stderr().lock();

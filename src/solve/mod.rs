@@ -1,9 +1,10 @@
-use crate::model::{BodyId, JointId, Marker};
-use crate::problem::{PreparedProblem, tree::TraversalDirection};
 use std::collections::BTreeMap;
 
 use nalgebra::{DMatrix, DVector, UnitQuaternion, Vector3};
 use thiserror::Error;
+
+use crate::model::{BodyId, JointId, Marker};
+use crate::problem::{PreparedProblem, tree::TraversalDirection};
 
 pub struct BodyPoses {
     poses: BTreeMap<BodyId, BodyPose>,

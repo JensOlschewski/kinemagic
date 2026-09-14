@@ -11,8 +11,9 @@ name = "km"
 path = "src/main.rs"
 
 [dependencies]
+anyhow = "1.0.104"
 clap = { version = "4.5", features = ["derive"] }
-nalgebra = { version = "0.35"}
-thiserror = "2.0"
+nalgebra = "0.35"
 serde = { version = "1", features = ["derive"] }
 serde_yaml_ng = "0.10"
+thiserror = "2.0.20"

@@ -1,41 +1,32 @@
 use std::path::{Path, PathBuf};
+
 use thiserror::Error;
 
 use crate::io::yaml::{YamlError, parse_yaml_file};
-use crate::problem::{self, PrepareError, PreparedProblem};
+use crate::model::Input;
 
 pub mod text;
 pub mod yaml;
 
-pub fn load_and_prepare(path: impl AsRef<Path>) -> Result<PreparedProblem, LoadPrepareError> {
-    let path = path.as_ref().to_owned();
-    let input = parse_yaml_file(&path)
-        .map_err(|source| LoadPrepareError::Load {
-            path: path.clone(),
-            source,
-        })?
-        .into_input()
-        .map_err(|source| LoadPrepareError::Load {
-            path: path.clone(),
-            source,
-        })?;
+pub fn load_file(path: &Path) -> Result<Input, LoadInputError> {
+    let yaml = parse_yaml_file(path).map_err(|source| LoadInputError::Load {
+        path: path.to_owned(),
+        source,
+    })?;
 
-    problem::prepare(input).map_err(|source| LoadPrepareError::Prepare { path, source })
+    yaml.into_input().map_err(|source| LoadInputError::Load {
+        path: path.to_owned(),
+        source,
+    })
 }
 
 #[derive(Debug, Error)]
 #[non_exhaustive]
-pub enum LoadPrepareError {
-    #[error("failed to load `{path}`: {source}")]
+pub enum LoadInputError {
+    #[error("failed to load `{path}`")]
     Load {
         path: PathBuf,
         #[source]
         source: YamlError,
-    },
-    #[error("failed to prepare `{path}`: {source}")]
-    Prepare {
-        path: PathBuf,
-        #[source]
-        source: PrepareError,
     },
 }

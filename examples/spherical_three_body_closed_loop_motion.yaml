@@ -1,15 +1,22 @@
-# Kinemagic example: one body connected to ground in a closed loop by two
-# spherical joints.
+# Kinemagic example:
+# three bodies connected to ground in a closed loop by four spherical joints.
 #
-# Run:
-#   km check examples/spherical_one_body_closed_loop_motion.yaml
-#   km solve examples/spherical_one_body_closed_loop_motion.yaml
+#     O--------O
+#     |        |
+#     |        |
+#     |        |
+#     |        |
+#     |        |
+#     |        |
+#_____O________O______
+#
 
 hardpoints:
   P1: [0.0, 0.0, 0.0]
   P2: [0.0, 0.0, 200.0]
   P3: [200.0, 0.0, 200.0]
   P4: [200.0, 0.0, 0.0]
+
 bodies:
   B1:
     body_id: 1
@@ -36,9 +43,6 @@ bodies:
       euler_angles: [0, 0, 0]
     points_on_body: [P3, P4]
 
-# --------------
-# --- JOINTS ---
-# --------------
 joints:
   J1:
     joint_id: 1
@@ -101,10 +105,6 @@ joints:
         method: euler
         euler_angles: [0, 0, 0]
 
-# --------------
-# --- Motions ---
-# --------------
-
 motions:
   RotateJ1:
     kind: joint-coordinates
@@ -125,7 +125,8 @@ motions:
     displacement:
       rot_x: 0
       rot_z: 0
+
 solver:
    start_time: 0
    end_time: 10
-   step_size: 0.01
+   step_size: 1

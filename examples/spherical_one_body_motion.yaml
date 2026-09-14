@@ -8,9 +8,9 @@
 # Positions describe the reference configuration.
 # Euler orientations use right-handed Z-X-Z angles in degrees.
 
-# ------------------------
-# --- REFERENCE POINTS ---
-# ------------------------
+# -------------------
+# --- HARDPOINTS  ---
+# -------------------
 
 # Hardpoints use world-frame [x, y, z] coordinates.
 # Bodies and joint markers reference them by name.
@@ -80,3 +80,14 @@ motions:
     joint_id: 1
     displacement:
       rot_x: 90.0
+
+# --------------
+# --- Solver ---
+# --------------
+
+# solver is optional. Without an entry, default is used:
+# start_time=0, end_time=1, step_size=1
+solver:
+  start_time: 0.0
+  end_time: 1.0
+  step_size: 1.0
