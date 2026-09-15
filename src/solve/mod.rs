@@ -968,7 +968,7 @@ mod tests {
     #[test]
     fn sequence_solver_commits_candidates_only_after_success() {
         let input = parse_yaml_str(include_str!(
-            "../../examples/spherical_three_body_closed_loop_motion.yaml"
+            "../../tests/fixtures/spherical_three_body_closed_loop.yaml"
         ))
         .unwrap()
         .into_input()
@@ -1078,7 +1078,7 @@ mod tests {
     #[test]
     fn evaluates_closed_loop_position_residuals_from_tree_poses() {
         let input = parse_yaml_str(include_str!(
-            "../../examples/spherical_one_body_closed_loop_motion.yaml"
+            "../../tests/fixtures/spherical_one_body_closed_loop.yaml"
         ))
         .unwrap()
         .into_input()
@@ -1095,7 +1095,7 @@ mod tests {
     fn evaluates_prescribed_closed_loop_orientation_residuals() {
         let yaml = format!(
             "{}\n  RotateJ2:\n    kind: joint-coordinates\n    joint_id: 2\n    displacement:\n      rot_z: -90\n",
-            include_str!("../../examples/spherical_one_body_closed_loop_motion.yaml")
+            include_str!("../../tests/fixtures/spherical_one_body_closed_loop.yaml")
         );
         let input = parse_yaml_str(&yaml).unwrap().into_input().unwrap();
         let problem = prepare(input).unwrap();
@@ -1109,7 +1109,7 @@ mod tests {
     #[test]
     fn evaluates_closed_loop_position_residual_rates_from_body_twists() {
         let input = parse_yaml_str(include_str!(
-            "../../examples/spherical_one_body_closed_loop_motion.yaml"
+            "../../tests/fixtures/spherical_one_body_closed_loop.yaml"
         ))
         .unwrap()
         .into_input()
@@ -1135,7 +1135,7 @@ mod tests {
     #[test]
     fn rejects_missing_body_twist_for_closure_rates() {
         let input = parse_yaml_str(include_str!(
-            "../../examples/spherical_one_body_closed_loop_motion.yaml"
+            "../../tests/fixtures/spherical_one_body_closed_loop.yaml"
         ))
         .unwrap()
         .into_input()
@@ -1176,7 +1176,7 @@ mod tests {
 
     #[test]
     fn preserves_non_contiguous_free_primary_columns() {
-        let yaml = include_str!("../../examples/spherical_one_body_closed_loop_motion.yaml")
+        let yaml = include_str!("../../tests/fixtures/spherical_one_body_closed_loop.yaml")
             .replace("      rot_z: 90", "      rot_x: 10\n      rot_z: 90");
         let input = parse_yaml_str(&yaml).unwrap().into_input().unwrap();
         let problem = prepare(input).unwrap();
@@ -1254,7 +1254,7 @@ joints:
     #[test]
     fn assembles_closure_jacobian_from_twist_columns() {
         let input = parse_yaml_str(include_str!(
-            "../../examples/spherical_one_body_closed_loop_motion.yaml"
+            "../../tests/fixtures/spherical_one_body_closed_loop.yaml"
         ))
         .unwrap()
         .into_input()
@@ -1270,7 +1270,7 @@ joints:
     #[test]
     fn analytic_closure_jacobian_matches_candidate_perturbations() {
         let input = parse_yaml_str(include_str!(
-            "../../examples/spherical_one_body_closed_loop_motion.yaml"
+            "../../tests/fixtures/spherical_one_body_closed_loop.yaml"
         ))
         .unwrap()
         .into_input()
@@ -1303,7 +1303,7 @@ joints:
     #[test]
     fn reports_deterministic_closure_jacobian_rank_and_selection() {
         let input = parse_yaml_str(include_str!(
-            "../../examples/spherical_one_body_closed_loop_motion.yaml"
+            "../../tests/fixtures/spherical_one_body_closed_loop.yaml"
         ))
         .unwrap()
         .into_input()
@@ -1320,7 +1320,7 @@ joints:
 
     #[test]
     fn rejects_over_prescribed_closure_jacobian() {
-        let yaml = include_str!("../../examples/spherical_one_body_closed_loop_motion.yaml")
+        let yaml = include_str!("../../tests/fixtures/spherical_one_body_closed_loop.yaml")
             .replace(
                 "      rot_z: 90",
                 "      rot_x: 10\n      rot_y: 20\n      rot_z: 90",
@@ -1341,7 +1341,7 @@ joints:
     fn evaluates_prescribed_closed_loop_orientation_residual_rates() {
         let yaml = format!(
             "{}\n  RotateJ2:\n    kind: joint-coordinates\n    joint_id: 2\n    displacement:\n      rot_z: -90\n",
-            include_str!("../../examples/spherical_one_body_closed_loop_motion.yaml")
+            include_str!("../../tests/fixtures/spherical_one_body_closed_loop.yaml")
         );
         let input = parse_yaml_str(&yaml).unwrap().into_input().unwrap();
         let problem = prepare(input).unwrap();
@@ -1366,7 +1366,7 @@ joints:
     fn orders_position_rows_before_orientation_rows() {
         let yaml = format!(
             "{}\n  RotateJ2:\n    kind: joint-coordinates\n    joint_id: 2\n    displacement:\n      rot_z: -90\n",
-            include_str!("../../examples/spherical_one_body_closed_loop_motion.yaml")
+            include_str!("../../tests/fixtures/spherical_one_body_closed_loop.yaml")
         );
         let input = parse_yaml_str(&yaml).unwrap().into_input().unwrap();
         let problem = prepare(input).unwrap();

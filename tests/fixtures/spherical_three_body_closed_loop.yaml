@@ -1,22 +1,8 @@
-# Kinemagic example:
-# three bodies connected to ground in a closed loop by four spherical joints.
-#
-#     O--------O
-#     |        |
-#     |        |
-#     |        |
-#     |        |
-#     |        |
-#     |        |
-#_____O________O______
-#
-
 hardpoints:
   P1: [0.0, 0.0, 0.0]
   P2: [0.0, 0.0, 200.0]
   P3: [200.0, 0.0, 200.0]
   P4: [200.0, 0.0, 0.0]
-
 bodies:
   B1:
     body_id: 1
@@ -42,11 +28,11 @@ bodies:
       method: euler
       euler_angles: [0, 0, 0]
     points_on_body: [P3, P4]
-
 joints:
   J1:
     joint_id: 1
     kind: spherical
+    role: primary
     i:
       body_id: 0
       position: P1
@@ -62,6 +48,7 @@ joints:
   J2:
     joint_id: 2
     kind: spherical
+    role: primary
     i:
       body_id: 1
       position: P2
@@ -77,6 +64,7 @@ joints:
   J3:
     joint_id: 3
     kind: spherical
+    role: primary
     i:
       body_id: 2
       position: P3
@@ -92,6 +80,7 @@ joints:
   J4:
     joint_id: 4
     kind: spherical
+    role: secondary
     i:
       body_id: 3
       position: P4
@@ -104,7 +93,6 @@ joints:
       orientation:
         method: euler
         euler_angles: [0, 0, 0]
-
 motions:
   RotateJ1:
     kind: joint-coordinates
@@ -125,8 +113,7 @@ motions:
     displacement:
       rot_x: 0
       rot_z: 0
-
 solver:
-   start_time: 0
-   end_time: 10
-   step_size: 1
+  start_time: 0
+  end_time: 200
+  step_size: 0.5

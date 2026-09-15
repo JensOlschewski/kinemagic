@@ -1,19 +1,20 @@
-# Kinemagic M1 example: one moving body connected to ground by a spherical joint.
+# Kinemagic example: one body connected to ground by one spherical joint.
+#
+# Demonstrates:
+# - minimal ground-rooted mechanism
+# - time-dependent joint-coordinate motion
+# - solver time interval
 #
 # Run:
 #   km check examples/spherical_one_body_motion.yaml
 #   km solve examples/spherical_one_body_motion.yaml
-#
-# This example shows only features supported by M1.
-# Positions describe the reference configuration.
-# Euler orientations use right-handed Z-X-Z angles in degrees.
+#   km solve examples/spherical_one_body_motion.yaml --view=live
 
-# -------------------
-# --- HARDPOINTS  ---
-# -------------------
+# ------------------
+# --- HARDPOINTS ---
+# ------------------
 
-# Hardpoints use world-frame [x, y, z] coordinates.
-# Bodies and joint markers reference them by name.
+# Hardpoints use world-frame [x, y, z] coordinates in the reference pose.
 hardpoints:
   P1: [0.0, 0.0, 0.0]
 
@@ -21,10 +22,7 @@ hardpoints:
 # --- BODIES ---
 # --------------
 
-# Body 0 is implicit ground with identity world pose.
-# Each listed body defines its reference pose in the world frame.
-# points_on_body names reference hardpoints attached to that body.
-# Loading converts those points into body-local coordinates.
+# Body 0 is implicit ground. Body points reference named hardpoints.
 bodies:
   B1:
     body_id: 1
@@ -32,62 +30,50 @@ bodies:
     position: [0.0, 0.0, -100.0]
     orientation:
       method: euler
-      euler_angles: [0, 0, 0]
+      euler_angles: [0.0, 0.0, 0.0]
     points_on_body: [P1]
 
 # --------------
 # --- JOINTS ---
 # --------------
 
-# i is the parent marker; j is the child marker.
-# Marker positions and orientations are specified in the world frame.
-# Loading converts both into the owning body frame.
-# Marker position accepts a hardpoint name or inline [x, y, z] coordinates.
+# Marker poses are authored in world coordinates and converted to body-local
+# coordinates while loading.
 joints:
   J1:
     joint_id: 1
     kind: spherical
-    # defines which topology the joint belongs to
-    # role can be define explicitly by auto|primary|secondary
-    # defaulting to auto if ommited
-    role: auto
     i:
       body_id: 0
       position: P1
       orientation:
         method: euler
-        euler_angles: [0, 0, 0]
+        euler_angles: [0.0, 0.0, 0.0]
     j:
       body_id: 1
       position: P1
       orientation:
         method: euler
-        euler_angles: [0, 0, 0]
+        euler_angles: [0.0, 0.0, 0.0]
 
-# --------------
-# --- Motions ---
-# --------------
+# ---------------
+# --- MOTIONS ---
+# ---------------
 
-# motions is optional. Without an entry, a joint keeps its reference orientation.
-# Each motion targets one joint by joint_id.
-# displacement rot_x | rot_y | rot_z defines a rotation-vector delta from the
-# reference joint orientation, expressed in the reference i-marker frame, in degrees.
-# Omitted components remain unconstrained.
-# All motions describe one configuration; they are not applied as a sequence.
+# Rotation-vector components are expressed in degrees in the reference
+# i-marker frame. Expressions may depend on solver variable `time`.
 motions:
   RotateJ1:
     kind: joint-coordinates
     joint_id: 1
     displacement:
-      rot_x: 90.0
+      rot_y: "45 * time"
 
 # --------------
-# --- Solver ---
+# --- SOLVER ---
 # --------------
 
-# solver is optional. Without an entry, default is used:
-# start_time=0, end_time=1, step_size=1
 solver:
   start_time: 0.0
-  end_time: 1.0
-  step_size: 1.0
+  end_time: 4.0
+  step_size: 0.1
