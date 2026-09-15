@@ -6,11 +6,16 @@ use thiserror::Error;
 use crate::model::{BodyId, JointId, Model};
 use crate::solve::BodyPoses;
 
+mod terminal;
+
+pub use terminal::{LiveViewEvent, ViewFrame, ViewerError, run_live_viewer, run_viewer};
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Projection {
     Xy,
     Xz,
     Yz,
+    Isometric,
 }
 
 impl Projection {
@@ -19,6 +24,14 @@ impl Projection {
             Self::Xy => Vector2::new(point.x, point.y),
             Self::Xz => Vector2::new(point.x, point.z),
             Self::Yz => Vector2::new(point.y, point.z),
+            Self::Isometric => {
+                let inverse_sqrt_two = 1.0 / 2.0_f64.sqrt();
+                let inverse_sqrt_six = 1.0 / 6.0_f64.sqrt();
+                Vector2::new(
+                    (point.x - point.y) * inverse_sqrt_two,
+                    (-point.x - point.y + 2.0 * point.z) * inverse_sqrt_six,
+                )
+            }
         }
     }
 }
@@ -312,7 +325,10 @@ pub struct ProjectedBounds {
 }
 
 impl ProjectedBounds {
-    pub fn for_scenes(scenes: &[Scene], projection: Projection) -> Option<Self> {
+    pub fn for_scenes<'a>(
+        scenes: impl IntoIterator<Item = &'a Scene>,
+        projection: Projection,
+    ) -> Option<Self> {
         let mut bounds = BoundsBuilder::default();
         for scene in scenes {
             scene.visit_positions(|position| bounds.include(projection.project(position)));
@@ -479,6 +495,20 @@ mod tests {
     }
 
     #[test]
+    fn projects_isometric_axes_with_z_up() {
+        let x = Projection::Isometric.project(Vector3::x());
+        let y = Projection::Isometric.project(Vector3::y());
+        let z = Projection::Isometric.project(Vector3::z());
+
+        assert!((x.x - 1.0 / 2.0_f64.sqrt()).abs() < 1.0e-12);
+        assert!((y.x + 1.0 / 2.0_f64.sqrt()).abs() < 1.0e-12);
+        assert!(z.x.abs() < 1.0e-12);
+        assert!(x.y < 0.0);
+        assert!(y.y < 0.0);
+        assert!(z.y > 0.0);
+    }
+
+    #[test]
     fn builds_reference_geometry_from_body_points_and_joint_markers() {
         let input = parse_yaml_str(TWO_BODY).unwrap().into_input().unwrap();
         let scene = Scene::from_reference(input.model());
@@ -590,7 +620,8 @@ mod tests {
     fn combines_bounds_across_frames() {
         let first = scene_at(Vector3::new(-2.0, 1.0, 0.0));
         let second = scene_at(Vector3::new(4.0, 3.0, 0.0));
-        let bounds = ProjectedBounds::for_scenes(&[first, second], Projection::Xy).unwrap();
+        let scenes = [first, second];
+        let bounds = ProjectedBounds::for_scenes(&scenes, Projection::Xy).unwrap();
 
         assert_eq!(bounds.min(), Vector2::new(-2.0, 0.0));
         assert_eq!(bounds.max(), Vector2::new(4.0, 3.0));
