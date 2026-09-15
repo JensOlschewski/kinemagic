@@ -8,12 +8,12 @@ use crate::model::{BodyId, Input, JointId, Model, SolverSettings};
 use coordinates::resolve_joint_coordinates;
 pub use tree::{TraversalDirection, build_kinematic_topology};
 
-pub use coordinates::{JointCoordinate, JointCoordinateError};
+pub use coordinates::{JointCoordinate, JointCoordinateError, JointCoordinates};
 pub use tree::KinematicTopologyError;
 
 pub struct PreparedProblem {
     input: Input,
-    joint_coordinates: coordinates::JointCoordinates,
+    joint_coordinates: JointCoordinates,
     tree_edges: Vec<PreparedTreeEdge>,
     closure_joint_ids: Vec<JointId>,
 }
@@ -27,16 +27,16 @@ impl PreparedProblem {
         self.input.solver()
     }
 
+    pub fn joint_coordinate(&self, joint_id: JointId) -> Option<&JointCoordinate> {
+        self.joint_coordinates.get(joint_id)
+    }
+
     pub fn tree_edges(&self) -> &[PreparedTreeEdge] {
         &self.tree_edges
     }
 
     pub fn closure_joint_ids(&self) -> &[JointId] {
         &self.closure_joint_ids
-    }
-
-    pub fn joint_coordinate(&self, joint_id: JointId) -> Option<&JointCoordinate> {
-        self.joint_coordinates.get(joint_id)
     }
 
     pub fn free_primary_coordinates(&self) -> Vec<(JointId, usize)> {

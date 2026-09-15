@@ -116,6 +116,57 @@ fn solve_renders_closed_loop_progress_to_stderr() {
 }
 
 #[test]
+fn view_requires_an_interactive_terminal() {
+    let output = run_with_args("check", VALID_NO_MOTION, &["--view"]);
+
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    assert!(
+        String::from_utf8(output.stderr)
+            .unwrap()
+            .contains("terminal viewer requires interactive stdin and stdout")
+    );
+}
+
+#[test]
+fn solve_view_requires_an_interactive_terminal_without_pose_output() {
+    let output = run_with_args("solve", VALID_NO_MOTION, &["--view"]);
+
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    assert!(
+        String::from_utf8(output.stderr)
+            .unwrap()
+            .contains("terminal viewer requires interactive stdin and stdout")
+    );
+}
+
+#[test]
+fn solve_live_view_requires_an_interactive_terminal_without_pose_output() {
+    let output = run_with_args("solve", VALID_NO_MOTION, &["--view=live"]);
+
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    assert!(
+        String::from_utf8(output.stderr)
+            .unwrap()
+            .contains("terminal viewer requires interactive stdin and stdout")
+    );
+}
+
+#[test]
+fn solve_rejects_view_with_progress() {
+    let output = run_with_args("solve", VALID_NO_MOTION, &["--view", "--progress"]);
+
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8(output.stderr)
+            .unwrap()
+            .contains("cannot be used with")
+    );
+}
+
+#[test]
 fn solve_output_is_deterministic() {
     let first = run("solve", VALID_MOTION);
     let second = run("solve", VALID_MOTION);

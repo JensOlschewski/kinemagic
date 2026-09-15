@@ -46,7 +46,7 @@ impl SolverSettings {
     pub const fn defaults() -> Self {
         Self {
             start_time: 0.0,
-            end_time: 0.0,
+            end_time: 1.0,
             step_size: 1.0,
         }
     }

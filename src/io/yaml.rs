@@ -1,15 +1,14 @@
-use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use nalgebra::{UnitQuaternion, Vector3};
+use serde::Deserialize;
 use thiserror::Error;
 
 use crate::model::{
     Bodies, Body, BodyId, Input, Joint, JointDisplacement, JointId, JointKind, JointRole, Joints,
     Marker, Model, ModelBuildError, Motion, MotionKind, Point, SolverSettings,
 };
-
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct YamlInput {
@@ -36,12 +35,10 @@ impl YamlInput {
             solver,
         } = self;
 
-        let body_values = bodies
+        let mut body_values = bodies
             .into_iter()
             .map(|(name, body)| body.into_body(&name, &hardpoints))
             .collect::<Result<Vec<Body>, YamlError>>()?;
-
-        let mut body_values = body_values;
 
         if let Some(ground) = body_values.iter().find(|body| body.id() == BodyId::GROUND) {
             return Err(YamlError::ExplicitGround {
@@ -254,7 +251,7 @@ impl YamlMotion {
                 YamlDisplacementValue::Static(initial) => (initial, 0.0),
                 YamlDisplacementValue::Expression(expression) => (
                     0.0,
-                    parse_time_expression(&expression, &format!("{name}.{component:?}"))?,
+                    parse_time_expression(&format!("{name}.{component:?}"), &expression)?,
                 ),
             };
             let initial = Some(initial.to_radians());
@@ -304,7 +301,7 @@ impl YamlMotion {
                     validate_finite_value(&format!("{path}.{component_name}"), *initial)?;
                 }
                 YamlDisplacementValue::Expression(expression) => {
-                    parse_time_expression(expression, &format!("{path}.{component_name}"))?;
+                    parse_time_expression(&format!("{path}.{component_name}"), expression)?;
                 }
             }
         }
@@ -321,13 +318,10 @@ enum YamlDisplacementValue {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(default, deny_unknown_fields)]
 pub struct YamlSolverSettings {
-    #[serde(default)]
     start_time: f64,
-    #[serde(default)]
     end_time: f64,
-    #[serde(default = "default_step_size")]
     step_size: f64,
 }
 
@@ -336,7 +330,7 @@ impl Default for YamlSolverSettings {
         Self {
             start_time: 0.0,
             end_time: 0.0,
-            step_size: default_step_size(),
+            step_size: 1.0,
         }
     }
 }
@@ -346,6 +340,7 @@ impl YamlSolverSettings {
         let settings = self.to_settings()?;
         let interval = settings.end_time() - settings.start_time();
         let count = interval / settings.step_size();
+
         if !count.is_finite() || (count - count.round()).abs() > 1.0e-10 {
             return Err(YamlError::UnrepresentableInterval);
         }
@@ -354,6 +349,7 @@ impl YamlSolverSettings {
 
     fn to_settings(&self) -> Result<SolverSettings, YamlError> {
         let settings = SolverSettings::new(self.start_time, self.end_time, self.step_size);
+
         for (path, value) in [
             ("solver.start_time", settings.start_time()),
             ("solver.end_time", settings.end_time()),
@@ -361,41 +357,46 @@ impl YamlSolverSettings {
         ] {
             validate_finite_value(path, value)?;
         }
+
         if settings.step_size() <= 0.0 {
             return Err(YamlError::NonPositiveStepSize);
         }
+
+        if settings.start_time() < 0.0 {
+            return Err(YamlError::NonPositiveStartTime);
+        }
+
         if settings.end_time() < settings.start_time() {
             return Err(YamlError::InvalidTimeRange);
         }
+
         Ok(settings)
     }
 }
 
-fn default_step_size() -> f64 {
-    1.0
-}
-
-fn parse_time_expression(expression: &str, path: &str) -> Result<f64, YamlError> {
+fn parse_time_expression(path: &str, expression: &str) -> Result<f64, YamlError> {
     let parts = expression.trim().split('*').collect::<Vec<_>>();
+
     if parts.len() != 2 || parts[1].trim() != "time" {
         return Err(YamlError::InvalidExpression {
-            path: path.to_owned(),
             expression: expression.to_owned(),
         });
     }
+
     let coefficient = parts[0]
         .trim()
         .parse::<f64>()
         .map_err(|_| YamlError::InvalidExpression {
-            path: path.to_owned(),
             expression: expression.to_owned(),
         })?;
+
     if !coefficient.is_finite() {
         return Err(YamlError::NonFinite {
             path: path.to_owned(),
             value: coefficient,
         });
     }
+
     Ok(coefficient)
 }
 
@@ -565,11 +566,27 @@ fn validate_components(path: &str, values: &[f64; 3]) -> Result<(), YamlError> {
     Ok(())
 }
 
+pub fn parse_yaml_str(input: &str) -> Result<YamlInput, YamlError> {
+    serde_yaml_ng::from_str(input).map_err(|source| YamlError::Parse { source })
+}
+
+pub fn parse_yaml_file(path: &Path) -> Result<YamlInput, YamlError> {
+    let input = std::fs::read_to_string(path).map_err(|source| YamlError::Read {
+        path: path.to_owned(),
+        source,
+    })?;
+
+    parse_yaml_str(&input)
+}
+
 #[derive(Debug, Error)]
 pub enum YamlError {
-    #[error("invalid YAML: {0}")]
-    Parse(#[source] serde_yaml_ng::Error),
-    #[error("failed to read `{path}`: {source}")]
+    #[error("invalid YAML")]
+    Parse {
+        #[source]
+        source: serde_yaml_ng::Error,
+    },
+    #[error("failed to read `{path}`")]
     Read {
         path: PathBuf,
         #[source]
@@ -579,7 +596,7 @@ pub enum YamlError {
     UnknownHardpoint { name: String, point: String },
     #[error("marker `{name}` references unknown hardpoint `{point}`")]
     UnknownMarkerHardpoint { name: String, point: String },
-    #[error("marker `{name}` references unknown body '{body_id}`")]
+    #[error("marker `{name}` references unknown body `{body_id}`")]
     UnknownJointBody { name: String, body_id: u32 },
     #[error("body `{name}` uses reserved body ID 0; ground is implicit")]
     ExplicitGround { name: String },
@@ -587,10 +604,12 @@ pub enum YamlError {
     EmptyMotionDisplacement { name: String },
     #[error("non-finite value `{value}` at `{path}`")]
     NonFinite { path: String, value: f64 },
-    #[error("invalid time expression `{expression}` at `{path}`")]
-    InvalidExpression { path: String, expression: String },
+    #[error("invalid time expression `{expression}`")]
+    InvalidExpression { expression: String },
     #[error("solver step_size must be positive")]
     NonPositiveStepSize,
+    #[error("solver start_time must be non-negative")]
+    NonPositiveStartTime,
     #[error("solver end_time must be greater than or equal to start_time")]
     InvalidTimeRange,
     #[error("solver interval is not representable by step_size")]
@@ -599,33 +618,18 @@ pub enum YamlError {
     Model(#[from] ModelBuildError),
 }
 
-pub fn parse_yaml_str(input: &str) -> Result<YamlInput, YamlError> {
-    serde_yaml_ng::from_str(input).map_err(YamlError::Parse)
-}
-
-pub fn parse_yaml_file(path: impl AsRef<Path>) -> Result<YamlInput, YamlError> {
-    let path = path.as_ref();
-
-    let input = std::fs::read_to_string(path).map_err(|source| YamlError::Read {
-        path: path.to_owned(),
-        source,
-    })?;
-
-    parse_yaml_str(&input)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     const VALID_ONE_BODY_PARSE_INPUT: &str =
-        include_str!("../../../tests/fixtures/spherical_one_body_parse.yaml");
+        include_str!("../../tests/fixtures/spherical_one_body_parse.yaml");
     const VALID_TWO_BODY_PARSE_INPUT: &str =
-        include_str!("../../../tests/fixtures/spherical_two_body_parse.yaml");
+        include_str!("../../tests/fixtures/spherical_two_body_parse.yaml");
 
     #[test]
     fn converts_spherical_one_body_parse_into_model() -> Result<(), YamlError> {
-        let input = parse_yaml_str(VALID_ONE_BODY_PARSE_INPUT)?.into_input()?;
+        let input = convert(VALID_ONE_BODY_PARSE_INPUT)?;
         let model = input.model();
 
         assert_eq!(model.bodies().iter().count(), 2);
@@ -652,7 +656,7 @@ mod tests {
 
     #[test]
     fn converts_spherical_two_body_parse_into_model() -> Result<(), YamlError> {
-        let input = parse_yaml_str(VALID_TWO_BODY_PARSE_INPUT)?.into_input()?;
+        let input = convert(VALID_TWO_BODY_PARSE_INPUT)?;
 
         let model = input.model();
 
@@ -691,7 +695,7 @@ mod tests {
 
     #[test]
     fn converts_missing_motions_into_empty_input() -> Result<(), YamlError> {
-        let input = parse_yaml_str(VALID_ONE_BODY_PARSE_INPUT)?.into_input()?;
+        let input = convert(VALID_ONE_BODY_PARSE_INPUT)?;
 
         assert!(input.motions().is_empty());
 
@@ -708,10 +712,10 @@ mod tests {
 
         let yaml = format!(
             "{}\nmotions:\n  RotateJ1:\n    kind: joint-coordinates\n    joint_id: 1\n    displacement:\n      rot_x: 90.0\n      rot_y: 90.0\n",
-            include_str!("../../../tests/fixtures/spherical_one_body_parse.yaml")
+            include_str!("../../tests/fixtures/spherical_one_body_parse.yaml")
         );
 
-        let input = parse_yaml_str(&yaml)?.into_input()?;
+        let input = convert(&yaml)?;
         let motion = &input.motions()[0];
         let actual = motion.joint_displacement().rotation();
 
@@ -726,10 +730,10 @@ mod tests {
     fn converts_time_dependent_joint_coordinate_motion_into_input() -> Result<(), YamlError> {
         let yaml = format!(
             "{}\nmotions:\n  RotateJ1:\n    kind: joint-coordinates\n    joint_id: 1\n    displacement:\n      rot_y: \"2*time\"\n",
-            include_str!("../../../tests/fixtures/spherical_one_body_parse.yaml")
+            include_str!("../../tests/fixtures/spherical_one_body_parse.yaml")
         );
 
-        let input = parse_yaml_str(&yaml)?.into_input()?;
+        let input = convert(&yaml)?;
         let motion = &input.motions()[0];
 
         assert_eq!(
@@ -746,19 +750,19 @@ mod tests {
 
     #[test]
     fn rejects_invalid_time_expression_and_solver_interval() {
-        let valid = include_str!("../../../tests/fixtures/spherical_one_body_parse.yaml");
+        let valid = include_str!("../../tests/fixtures/spherical_one_body_parse.yaml");
         let invalid_expression = format!(
             "{valid}\nmotions:\n  RotateJ1:\n    kind: joint-coordinates\n    joint_id: 1\n    displacement:\n      rot_y: \"sin(time)\"\n"
         );
         assert!(matches!(
-            parse_yaml_str(&invalid_expression).unwrap().into_input(),
+            convert(&invalid_expression),
             Err(YamlError::InvalidExpression { .. })
         ));
 
         let invalid_interval =
             format!("{valid}\nsolver:\n  start_time: 0.0\n  end_time: 0.3\n  step_size: 0.2\n");
         assert!(matches!(
-            parse_yaml_str(&invalid_interval).unwrap().into_input(),
+            convert(&invalid_interval),
             Err(YamlError::UnrepresentableInterval)
         ));
     }
@@ -766,7 +770,7 @@ mod tests {
     #[test]
     fn rejects_unknown_fields_with_context() {
         let valid = VALID_ONE_BODY_PARSE_INPUT;
-        let motion = include_str!("../../../tests/fixtures/spherical_two_body_motion.yaml");
+        let motion = include_str!("../../tests/fixtures/spherical_two_body_motion.yaml");
         let cases = [
             (
                 format!("{valid}\nunexpected: true\n"),
@@ -823,10 +827,14 @@ mod tests {
         ];
 
         for (yaml, context, supplied) in cases {
-            let error = parse_yaml_str(&yaml).unwrap_err().to_string();
+            let error = parse_yaml_str(&yaml).unwrap_err();
+            let YamlError::Parse { source } = error else {
+                panic!("{context}: expected YAML parse error, got {error}");
+            };
+            let message = source.to_string();
 
-            assert!(error.contains(supplied), "{context}: {error}");
-            assert!(error.contains(context), "{context}: {error}");
+            assert!(message.contains(supplied), "{context}: {message}");
+            assert!(message.contains(context), "{context}: {message}");
         }
     }
 
@@ -837,7 +845,10 @@ mod tests {
         for section in ["primary", "secondary"] {
             let yaml = format!("hardpoints: {{}}\njoints:\n  {section}:\n    J1: {{}}\n");
 
-            assert!(matches!(parse_yaml_str(&yaml), Err(YamlError::Parse(_))));
+            assert!(matches!(
+                parse_yaml_str(&yaml),
+                Err(YamlError::Parse { .. })
+            ));
         }
 
         assert!(parse_yaml_str(&input).is_ok());
@@ -846,7 +857,7 @@ mod tests {
     #[test]
     fn rejects_unsupported_features_with_context() {
         let valid = VALID_ONE_BODY_PARSE_INPUT;
-        let motion = include_str!("../../../tests/fixtures/spherical_two_body_motion.yaml");
+        let motion = include_str!("../../tests/fixtures/spherical_two_body_motion.yaml");
         let cases = [
             (
                 valid.replace("kind: spherical", "kind: revolute"),
@@ -866,10 +877,14 @@ mod tests {
         ];
 
         for (yaml, context, supplied) in cases {
-            let error = parse_yaml_str(&yaml).unwrap_err().to_string();
+            let error = parse_yaml_str(&yaml).unwrap_err();
+            let YamlError::Parse { source } = error else {
+                panic!("{context}: expected YAML parse error, got {error}");
+            };
+            let message = source.to_string();
 
-            assert!(error.contains(context), "{error}");
-            assert!(error.contains(supplied), "{error}");
+            assert!(message.contains(supplied), "{context}: {message}");
+            assert!(message.contains(context), "{context}: {message}");
         }
     }
 
@@ -1037,7 +1052,10 @@ mod tests {
         ];
 
         for input in invalid_inputs {
-            assert!(matches!(parse_yaml_str(&input), Err(YamlError::Parse(_))));
+            assert!(matches!(
+                parse_yaml_str(&input),
+                Err(YamlError::Parse { .. })
+            ));
         }
     }
 
@@ -1053,9 +1071,11 @@ mod tests {
 
         let error = parse_yaml_str(&yaml).unwrap_err();
 
-        assert!(matches!(error, YamlError::Parse(_)));
+        let YamlError::Parse { source } = error else {
+            panic!("expected YAML parse error, got {error}");
+        };
 
-        let message = error.to_string();
+        let message = source.to_string();
 
         assert!(message.contains("joints.J1"), "{message}");
         assert!(message.contains("invalid"), "{message}");
@@ -1105,7 +1125,7 @@ mod tests {
 
     #[test]
     fn parses_yaml_file() -> Result<(), YamlError> {
-        let model = parse_yaml_file("tests/fixtures/spherical_one_body_parse.yaml")?;
+        let model = parse_yaml_file(Path::new("tests/fixtures/spherical_one_body_parse.yaml"))?;
 
         assert_eq!(model.bodies.len(), 1);
         assert_eq!(model.joints.len(), 1);
@@ -1115,7 +1135,7 @@ mod tests {
 
     #[test]
     fn rejects_missing_yaml_file() {
-        let result = parse_yaml_file("tests/fixtures/missing-model.yaml");
+        let result = parse_yaml_file(Path::new("tests/fixtures/missing-model.yaml"));
 
         assert!(matches!(result, Err(YamlError::Read { .. })));
     }
@@ -1124,6 +1144,10 @@ mod tests {
     fn rejects_malformed_yaml() {
         let result = parse_yaml_str("bodies: [");
 
-        assert!(matches!(result, Err(YamlError::Parse(_))));
+        assert!(matches!(result, Err(YamlError::Parse { .. })));
+    }
+
+    fn convert(yaml: &str) -> Result<Input, YamlError> {
+        parse_yaml_str(yaml)?.into_input()
     }
 }
