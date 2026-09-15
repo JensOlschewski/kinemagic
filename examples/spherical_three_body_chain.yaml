@@ -1,0 +1,134 @@
+# Kinemagic example: three-body open chain in the x-z plane.
+#
+# Demonstrates:
+# - ground-rooted multi-body tree
+# - simultaneous time-dependent motions on multiple joints
+# - 2D mechanism viewing with x-z projection
+#
+# Run:
+#   km check examples/spherical_three_body_chain.yaml
+#   km solve examples/spherical_three_body_chain.yaml
+#   km solve examples/spherical_three_body_chain.yaml --view=live
+
+# ------------------
+# --- HARDPOINTS ---
+# ------------------
+
+hardpoints:
+  P1: [0.0, 0.0, 0.0]
+  P2: [0.0, 0.0, -160.0]
+  P3: [120.0, 0.0, -280.0]
+  P4: [220.0, 0.0, -400.0]
+
+# --------------
+# --- BODIES ---
+# --------------
+
+bodies:
+  B1:
+    body_id: 1
+    side: single
+    position: [0.0, 0.0, -80.0]
+    orientation:
+      method: euler
+      euler_angles: [0.0, 0.0, 0.0]
+    points_on_body: [P1, P2]
+  B2:
+    body_id: 2
+    side: single
+    position: [60.0, 0.0, -220.0]
+    orientation:
+      method: euler
+      euler_angles: [0.0, 0.0, 0.0]
+    points_on_body: [P2, P3]
+  B3:
+    body_id: 3
+    side: single
+    position: [170.0, 0.0, -340.0]
+    orientation:
+      method: euler
+      euler_angles: [0.0, 0.0, 0.0]
+    points_on_body: [P3, P4]
+
+# --------------
+# --- JOINTS ---
+# --------------
+
+# Auto roles form the only possible ground-rooted spanning tree.
+joints:
+  J1:
+    joint_id: 1
+    kind: spherical
+    i:
+      body_id: 0
+      position: P1
+      orientation:
+        method: euler
+        euler_angles: [0.0, 0.0, 0.0]
+    j:
+      body_id: 1
+      position: P1
+      orientation:
+        method: euler
+        euler_angles: [0.0, 0.0, 0.0]
+  J2:
+    joint_id: 2
+    kind: spherical
+    i:
+      body_id: 1
+      position: P2
+      orientation:
+        method: euler
+        euler_angles: [0.0, 0.0, 0.0]
+    j:
+      body_id: 2
+      position: P2
+      orientation:
+        method: euler
+        euler_angles: [0.0, 0.0, 0.0]
+  J3:
+    joint_id: 3
+    kind: spherical
+    i:
+      body_id: 2
+      position: P3
+      orientation:
+        method: euler
+        euler_angles: [0.0, 0.0, 0.0]
+    j:
+      body_id: 3
+      position: P3
+      orientation:
+        method: euler
+        euler_angles: [0.0, 0.0, 0.0]
+
+# ---------------
+# --- MOTIONS ---
+# ---------------
+
+# Rotations about y keep this reference mechanism in the x-z plane.
+motions:
+  RotateJ1:
+    kind: joint-coordinates
+    joint_id: 1
+    displacement:
+      rot_y: "15 * time"
+  RotateJ2:
+    kind: joint-coordinates
+    joint_id: 2
+    displacement:
+      rot_y: "-10 * time"
+  RotateJ3:
+    kind: joint-coordinates
+    joint_id: 3
+    displacement:
+      rot_y: "20 * time"
+
+# --------------
+# --- SOLVER ---
+# --------------
+
+solver:
+  start_time: 0.0
+  end_time: 6.0
+  step_size: 0.1

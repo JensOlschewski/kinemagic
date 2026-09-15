@@ -1,0 +1,84 @@
+# Kinemagic example: rigid triangular plate on a spherical ground joint.
+#
+# Demonstrates:
+# - visibly three-dimensional rigid-body geometry
+# - compound time-dependent spherical-joint rotation
+# - orthographic isometric viewing
+#
+# Run:
+#   km check examples/spherical_plate_3d_motion.yaml
+#   km solve examples/spherical_plate_3d_motion.yaml
+#   km solve examples/spherical_plate_3d_motion.yaml --view=live
+#
+# Press 4 in the viewer for the isometric projection.
+
+# ------------------
+# --- HARDPOINTS ---
+# ------------------
+
+# P1 and P4 coincide to close the visible triangular plate outline.
+hardpoints:
+  P1: [0.0, 0.0, 0.0]
+  P2: [180.0, 0.0, 0.0]
+  P3: [40.0, 120.0, 100.0]
+  P4: [0.0, 0.0, 0.0]
+
+# --------------
+# --- BODIES ---
+# --------------
+
+bodies:
+  Plate:
+    body_id: 1
+    side: single
+    # Reference body origin at the triangular plate centroid.
+    position: [73.33, 40.0, 33.33]
+    orientation:
+      method: euler
+      euler_angles: [0.0, 0.0, 0.0]
+    points_on_body: [P1, P2, P3, P4]
+
+# --------------
+# --- JOINTS ---
+# --------------
+
+joints:
+  GroundJoint:
+    joint_id: 1
+    kind: spherical
+    i:
+      body_id: 0
+      position: P1
+      orientation:
+        method: euler
+        euler_angles: [0.0, 0.0, 0.0]
+    j:
+      body_id: 1
+      position: P1
+      orientation:
+        method: euler
+        euler_angles: [0.0, 0.0, 0.0]
+
+# ---------------
+# --- MOTIONS ---
+# ---------------
+
+# Rotation-vector components are measured in degrees in the reference
+# i-marker frame. Their combination produces spatial plate motion.
+motions:
+  RotatePlate:
+    kind: joint-coordinates
+    joint_id: 1
+    displacement:
+      rot_x: "12 * time"
+      rot_y: "9 * time"
+      rot_z: "-15 * time"
+
+# --------------
+# --- SOLVER ---
+# --------------
+
+solver:
+  start_time: 0.0
+  end_time: 8.0
+  step_size: 0.1

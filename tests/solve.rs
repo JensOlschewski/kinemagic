@@ -137,7 +137,7 @@ fn solving_is_repeatable_without_mutating_problem() {
 
 #[test]
 fn solves_closed_loop_problem() {
-    let yaml = include_str!("../examples/spherical_one_body_closed_loop_motion.yaml");
+    let yaml = include_str!("fixtures/spherical_one_body_closed_loop.yaml");
     let problem = prepared(yaml);
 
     let poses = solve(&problem).unwrap();
@@ -152,7 +152,7 @@ fn solves_closed_loop_problem() {
 
 #[test]
 fn solves_time_dependent_closed_loop_problem() {
-    let yaml = include_str!("../examples/spherical_one_body_closed_loop_motion.yaml")
+    let yaml = include_str!("fixtures/spherical_one_body_closed_loop.yaml")
         .replace("      rot_z: 90", "      rot_z: \"5*time\"");
     let problem = prepared(&yaml);
     let poses = solve_at(&problem, 2.0).unwrap();
@@ -168,7 +168,7 @@ fn solves_time_dependent_closed_loop_problem() {
 #[test]
 fn sequence_solver_preserves_closed_loop_branch_through_singularity() {
     let problem = prepared(include_str!(
-        "../examples/spherical_three_body_closed_loop_motion.yaml"
+        "fixtures/spherical_three_body_closed_loop.yaml"
     ));
     let mut solver = SequenceSolver::new(&problem);
     let positions = [89.0, 89.5, 90.0, 90.5, 91.0]
@@ -194,7 +194,7 @@ fn sequence_solver_preserves_closed_loop_branch_through_singularity() {
 fn reports_closed_loop_progress() {
     let yaml = format!(
         "{}\n  RotateJ2:\n    kind: joint-coordinates\n    joint_id: 2\n    displacement:\n      rot_z: -90\n",
-        include_str!("../examples/spherical_one_body_closed_loop_motion.yaml")
+        include_str!("fixtures/spherical_one_body_closed_loop.yaml")
     );
     let problem = prepared(&yaml);
     let mut events = Vec::new();
@@ -217,7 +217,7 @@ fn reports_closed_loop_progress() {
 fn solves_closed_loop_with_prescribed_orientation_constraint() {
     let yaml = format!(
         "{}\n  RotateJ2:\n    kind: joint-coordinates\n    joint_id: 2\n    displacement:\n      rot_z: -90\n",
-        include_str!("../examples/spherical_one_body_closed_loop_motion.yaml")
+        include_str!("fixtures/spherical_one_body_closed_loop.yaml")
     );
     let problem = prepared(&yaml);
     let poses = solve(&problem).unwrap();
@@ -233,7 +233,7 @@ fn solves_closed_loop_with_prescribed_orientation_constraint() {
 fn solves_closed_loop_with_equivalent_large_angle_constraint() {
     let yaml = format!(
         "{}\n  RotateJ2:\n    kind: joint-coordinates\n    joint_id: 2\n    displacement:\n      rot_z: 270\n",
-        include_str!("../examples/spherical_one_body_closed_loop_motion.yaml")
+        include_str!("fixtures/spherical_one_body_closed_loop.yaml")
     );
     let problem = prepared(&yaml);
     let poses = solve(&problem).unwrap();
@@ -247,7 +247,7 @@ fn solves_closed_loop_with_equivalent_large_angle_constraint() {
 
 #[test]
 fn rejects_over_prescribed_closed_loop_problem() {
-    let yaml = include_str!("../examples/spherical_one_body_closed_loop_motion.yaml").replace(
+    let yaml = include_str!("fixtures/spherical_one_body_closed_loop.yaml").replace(
         "      rot_z: 90",
         "      rot_x: 10\n      rot_y: 20\n      rot_z: 90",
     );
