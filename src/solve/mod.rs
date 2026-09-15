@@ -30,7 +30,52 @@ pub fn solve(problem: &PreparedProblem) -> Result<BodyPoses, SolverError> {
 }
 
 pub fn solve_at(problem: &PreparedProblem, time: f64) -> Result<BodyPoses, SolverError> {
-    solve_at_internal(problem, time, &mut |_| {})
+    SequenceSolver::new(problem).solve_at(time)
+}
+
+pub struct SequenceSolver<'a> {
+    problem: &'a PreparedProblem,
+    candidates: BTreeMap<JointId, Vector3<f64>>,
+    has_previous_solution: bool,
+}
+
+impl<'a> SequenceSolver<'a> {
+    pub fn new(problem: &'a PreparedProblem) -> Self {
+        Self {
+            problem,
+            candidates: BTreeMap::new(),
+            has_previous_solution: false,
+        }
+    }
+
+    pub fn solve_at(&mut self, time: f64) -> Result<BodyPoses, SolverError> {
+        self.solve_at_with_progress(time, |_| {})
+    }
+
+    pub fn solve_at_with_progress<F>(
+        &mut self,
+        time: f64,
+        mut progress: F,
+    ) -> Result<BodyPoses, SolverError>
+    where
+        F: FnMut(SolverProgress),
+    {
+        let mut candidates = self.candidates.clone();
+        let result = solve_at_internal(
+            self.problem,
+            time,
+            &mut candidates,
+            self.has_previous_solution,
+            &mut progress,
+        );
+        if result.is_ok() {
+            self.candidates = candidates;
+            self.has_previous_solution = true;
+        } else {
+            progress(SolverProgress::Failed);
+        }
+        result
+    }
 }
 
 pub fn solve_at_with_progress<F>(
@@ -41,7 +86,8 @@ pub fn solve_at_with_progress<F>(
 where
     F: FnMut(SolverProgress),
 {
-    let result = solve_at_internal(problem, time, &mut progress);
+    let mut candidates = BTreeMap::new();
+    let result = solve_at_internal(problem, time, &mut candidates, false, &mut progress);
     if result.is_err() {
         progress(SolverProgress::Failed);
     }
@@ -51,12 +97,14 @@ where
 fn solve_at_internal(
     problem: &PreparedProblem,
     time: f64,
+    candidates: &mut BTreeMap<JointId, Vector3<f64>>,
+    continuation: bool,
     progress: &mut dyn FnMut(SolverProgress),
 ) -> Result<BodyPoses, SolverError> {
     validate_time(time)?;
 
     if !problem.closure_joint_ids().is_empty() {
-        return solve_closed_loop(problem, time, progress);
+        return solve_closed_loop(problem, time, candidates, continuation, progress);
     }
 
     Ok(tree_poses_at(problem, time))
@@ -73,12 +121,12 @@ pub fn validate_time(time: f64) -> Result<(), SolverError> {
 fn solve_closed_loop(
     problem: &PreparedProblem,
     time: f64,
+    candidates: &mut BTreeMap<JointId, Vector3<f64>>,
+    continuation: bool,
     progress: &mut dyn FnMut(SolverProgress),
 ) -> Result<BodyPoses, SolverError> {
-    let mut candidates = BTreeMap::new();
-
     for iteration in 0..CLOSED_LOOP_MAX_ITERATIONS {
-        let poses = tree_poses_for_candidates_at(problem, &candidates, time);
+        let poses = tree_poses_for_candidates_at(problem, candidates, time);
         let residuals = closure_residuals_at(problem, &poses, time);
         let residual_norm = DVector::from_vec(residuals.clone()).norm();
         if !residual_norm.is_finite() {
@@ -96,9 +144,9 @@ fn solve_closed_loop(
             return Ok(poses);
         }
 
-        let analysis = analyze_closure_jacobian_at(problem, &candidates, time)?;
+        let analysis = analyze_closure_jacobian_at(problem, candidates, time)?;
         let free_coordinate_count = problem.free_primary_coordinates().len();
-        if free_coordinate_count > analysis.selected_columns().len() {
+        if !continuation && free_coordinate_count > analysis.selected_columns().len() {
             return Err(SolverError::UnderDetermined {
                 free_coordinates: free_coordinate_count,
                 dependent_coordinates: analysis.selected_columns().len(),
@@ -156,10 +204,10 @@ fn solve_closed_loop(
             damping_factor: accepted_step_norm / step.norm(),
             selected_rank: analysis.rank(),
         });
-        candidates = updated_candidates;
+        *candidates = updated_candidates;
 
         if accepted_step_norm <= CLOSED_LOOP_STEP_TOLERANCE {
-            let updated_poses = tree_poses_for_candidates_at(problem, &candidates, time);
+            let updated_poses = tree_poses_for_candidates_at(problem, candidates, time);
             let updated_residual_norm =
                 DVector::from_vec(closure_residuals_at(problem, &updated_poses, time)).norm();
             if !updated_residual_norm.is_finite() {
@@ -179,7 +227,7 @@ fn solve_closed_loop(
         }
     }
 
-    let poses = tree_poses_for_candidates_at(problem, &candidates, time);
+    let poses = tree_poses_for_candidates_at(problem, candidates, time);
     let residual_norm = DVector::from_vec(closure_residuals_at(problem, &poses, time)).norm();
     if !residual_norm.is_finite() {
         return Err(SolverError::NonFiniteResidual);
@@ -916,6 +964,36 @@ mod tests {
     use crate::problem::prepare;
 
     const TOLERANCE: f64 = 1.0e-12;
+
+    #[test]
+    fn sequence_solver_commits_candidates_only_after_success() {
+        let input = parse_yaml_str(include_str!(
+            "../../examples/spherical_three_body_closed_loop_motion.yaml"
+        ))
+        .unwrap()
+        .into_input()
+        .unwrap();
+        let problem = prepare(input).unwrap();
+        let mut solver = SequenceSolver::new(&problem);
+        solver.solve_at(89.0).unwrap();
+        let candidates = solver.candidates.clone();
+        let mut residual_events = 0;
+
+        let interrupted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = solver.solve_at_with_progress(89.5, |progress| {
+                if matches!(progress, SolverProgress::Residual { .. }) {
+                    residual_events += 1;
+                    if residual_events == 2 {
+                        panic!("interrupt solve after candidate update");
+                    }
+                }
+            });
+        }));
+
+        assert!(interrupted.is_err());
+        assert_eq!(residual_events, 2);
+        assert_eq!(solver.candidates, candidates);
+    }
 
     #[test]
     fn identity_markers_preserve_parent_pose() {

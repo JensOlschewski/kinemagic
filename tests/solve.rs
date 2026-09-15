@@ -2,7 +2,7 @@ use kinemagic::io::yaml::parse_yaml_str;
 use kinemagic::model::{BodyId, JointId};
 use kinemagic::problem::{PreparedProblem, TraversalDirection, prepare};
 use kinemagic::solve::{
-    BodyPose, BodyPoses, SolverProgress, solve, solve_at, solve_at_with_progress,
+    BodyPose, BodyPoses, SequenceSolver, SolverProgress, solve, solve_at, solve_at_with_progress,
 };
 use nalgebra::{UnitQuaternion, Vector3};
 
@@ -162,6 +162,31 @@ fn solves_time_dependent_closed_loop_problem() {
         kinemagic::solve::closure_position_residuals(&problem, &poses)
             .iter()
             .all(|residual| residual.norm() < 1.0e-8)
+    );
+}
+
+#[test]
+fn sequence_solver_preserves_closed_loop_branch_through_singularity() {
+    let problem = prepared(include_str!(
+        "../examples/spherical_three_body_closed_loop_motion.yaml"
+    ));
+    let mut solver = SequenceSolver::new(&problem);
+    let positions = [89.0, 89.5, 90.0, 90.5, 91.0]
+        .into_iter()
+        .map(|time| {
+            solver
+                .solve_at(time)
+                .unwrap()
+                .get(BodyId::new(2))
+                .unwrap()
+                .position()
+        })
+        .collect::<Vec<_>>();
+
+    assert!(
+        positions
+            .windows(2)
+            .all(|positions| (positions[1] - positions[0]).norm() < 5.0)
     );
 }
 
