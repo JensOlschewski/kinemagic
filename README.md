@@ -19,6 +19,9 @@ Examples:
 - [2D three-body chain](examples/spherical_three_body_chain.yaml)
 - [3D spherical plate](examples/spherical_plate_3d_motion.yaml)
 
+![Animated terminal viewer](docs/assets/viewer.gif)
+
+
 M1 currently supports:
 
 - spherical joints
