@@ -43,7 +43,7 @@ bodies:
 # --------------
 
 joints:
-  GroundJoint:
+  Spherical:
     joint_id: 1
     kind: spherical
     i:

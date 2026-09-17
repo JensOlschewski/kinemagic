@@ -112,7 +112,7 @@ motions:
     kind: joint-coordinates
     joint_id: 1
     displacement:
-      rot_y: "15 * time"
+      rot_y: "10 * time"
   RotateJ2:
     kind: joint-coordinates
     joint_id: 2
@@ -130,5 +130,5 @@ motions:
 
 solver:
   start_time: 0.0
-  end_time: 6.0
+  end_time: 10.0
   step_size: 0.1
