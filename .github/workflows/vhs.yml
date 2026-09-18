@@ -1,14 +1,6 @@
-name: Terminal Viewer Demo
+name: VHS
 
 on:
-  pull_request:
-    paths:
-      - .github/workflows/vhs.yml
-      - Cargo.lock
-      - Cargo.toml
-      - docs/assets/viewer.tape
-      - examples/**
-      - src/**
   push:
     branches:
       - main
@@ -21,38 +13,7 @@ on:
       - src/**
 
 jobs:
-  preview:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-
-      - run: cargo build --locked
-
-      - name: Make km available to VHS
-        run: echo "$GITHUB_WORKSPACE/target/debug" >> "$GITHUB_PATH"
-
-      - name: Generate terminal viewer GIF
-        uses: charmbracelet/vhs-action@v2
-        with:
-          path: docs/assets/viewer.tape
-          version: v0.11.0
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: terminal-viewer-gif
-          path: docs/assets/viewer.gif
-          if-no-files-found: error
-
   update:
-    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -78,5 +39,9 @@ jobs:
       - name: Commit updated terminal viewer GIF
         uses: stefanzweifel/git-auto-commit-action@v7
         with:
-          commit_message: "docs: update terminal viewer demo"
+          commit_message: "docs: update viewer demo"
+          branch: main
+          commit_user_name: vhs-action 📼
+          commit_user_email: actions@github.com
+          commit_author: vhs-action 📼 <actions@github.com>
           file_pattern: docs/assets/viewer.gif
