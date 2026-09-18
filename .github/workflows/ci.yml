@@ -16,7 +16,7 @@ jobs:
     steps:
 
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -35,12 +35,19 @@ jobs:
       - name: Cargo Testing
         run: cargo test --locked
 
-      - name: Building
-        run: cargo build --release --locked
+      - name: Make km available to VHS
+        run: echo "$GITHUB_WORKSPACE/target/debug" >> "$GITHUB_PATH"
 
+      - name: Generate terminal viewer gif for README
+        uses: charmbracelet/vhs-action@v2
+        with:
+          path: docs/assets/viewer.tape
+
+      - name: Verify terminal viewer gif was created
+        run: git diff --exit-code -- docs/assets/viewer.gif
 
       - name: Smoke Test
         run: |
-          ./target/release/km --help
-          ./target/release/km check examples/spherical_one_body_motion.yaml
-          ./target/release/km solve examples/spherical_one_body_motion.yaml
+          ./target/debug/km --help
+          ./target/debug/km check examples/spherical_one_body_motion.yaml
+          ./target/debug/km solve examples/spherical_one_body_motion.yaml
