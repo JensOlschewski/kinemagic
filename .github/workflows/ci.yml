@@ -48,6 +48,6 @@ jobs:
 
       - name: Smoke Test
         run: |
-          ./target/release/km --help
-          ./target/release/km check examples/spherical_one_body_motion.yaml
-          ./target/release/km solve examples/spherical_one_body_motion.yaml
+          ./target/debug/km --help
+          ./target/debug/km check examples/spherical_one_body_motion.yaml
+          ./target/debug/km solve examples/spherical_one_body_motion.yaml
