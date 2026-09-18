@@ -35,6 +35,18 @@ jobs:
       - name: Cargo Testing
         run: cargo test --locked
 
+      - name: Make km available to VHS
+        run: echo "$GITHUB_WORKSPACE/target/debug" >> "$GITHUB_PATH"
+
+      - name: Generate terminal viewer GIF
+        uses: charmbracelet/vhs-action@v2
+        with:
+          path: docs/assets/viewer.tape
+          version: v0.11.0
+
+      - name: Verify terminal viewer GIF is current
+        run: git diff --exit-code -- docs/assets/viewer.gif
+
       - name: Smoke Test
         run: |
           ./target/debug/km --help
