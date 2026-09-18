@@ -30,6 +30,14 @@ pub struct ViewFrame {
 }
 
 impl ViewFrame {
+    pub fn time(&self) -> Option<f64> {
+        self.time
+    }
+
+    pub fn scene(&self) -> &Scene {
+        &self.scene
+    }
+
     pub fn reference(scene: Scene) -> Self {
         Self { time: None, scene }
     }
@@ -39,14 +47,6 @@ impl ViewFrame {
             time: Some(time),
             scene,
         }
-    }
-
-    pub fn time(&self) -> Option<f64> {
-        self.time
-    }
-
-    pub fn scene(&self) -> &Scene {
-        &self.scene
     }
 }
 
@@ -145,6 +145,7 @@ struct ViewerApp {
     playback_fps: u16,
     loop_mode: LoopMode,
     playback_direction: PlaybackDirection,
+    show_labels: bool,
     live: Option<LiveState>,
     should_quit: bool,
 }
@@ -223,6 +224,7 @@ impl ViewerApp {
             playback_fps: DEFAULT_PLAYBACK_FPS,
             loop_mode: LoopMode::Restart,
             playback_direction: PlaybackDirection::Forward,
+            show_labels: false,
             live: None,
             should_quit: false,
         })
@@ -247,7 +249,7 @@ impl ViewerApp {
 
     fn render(&self, frame: &mut Frame<'_>) {
         let [canvas_area, status_area] =
-            Layout::vertical([Constraint::Min(3), Constraint::Length(2)]).areas(frame.area());
+            Layout::vertical([Constraint::Min(3), Constraint::Length(3)]).areas(frame.area());
 
         frame.render_widget(self.canvas(canvas_area), canvas_area);
         frame.render_widget(self.status(), status_area);
@@ -260,6 +262,7 @@ impl ViewerApp {
         let max = bounds.max();
         let projection = self.projection;
         let ground_label_offset = label_cell_size(bounds, area);
+        let show_labels = self.show_labels;
 
         Canvas::default()
             .block(Block::bordered().title(" Kinemagic "))
@@ -270,14 +273,16 @@ impl ViewerApp {
                 for segment in scene.ground().segments() {
                     draw_segment(context, projection, segment.start(), segment.end());
                 }
-                let ground_markers = scene.ground().markers();
-                if ground_markers.is_empty() {
-                    let point = projection.project(scene.ground().origin());
-                    print_label(context, point - ground_label_offset, "G".to_owned());
-                } else {
-                    for marker in ground_markers {
-                        let point = projection.project(*marker);
+                if show_labels {
+                    let ground_markers = scene.ground().markers();
+                    if ground_markers.is_empty() {
+                        let point = projection.project(scene.ground().origin());
                         print_label(context, point - ground_label_offset, "G".to_owned());
+                    } else {
+                        for marker in ground_markers {
+                            let point = projection.project(*marker);
+                            print_label(context, point - ground_label_offset, "G".to_owned());
+                        }
                     }
                 }
 
@@ -285,25 +290,27 @@ impl ViewerApp {
                     for segment in body.segments() {
                         draw_segment(context, projection, segment.start(), segment.end());
                     }
-                    print_label(
-                        context,
-                        projection.project(body.origin()),
-                        body.label().to_owned(),
-                    );
+                    if show_labels {
+                        print_label(
+                            context,
+                            projection.project(body.origin()),
+                            body.label().to_owned(),
+                        );
+                    }
                 }
 
                 for joint in scene.joints() {
                     draw_segment(context, projection, joint.i_position(), joint.j_position());
-                    print_label(
-                        context,
-                        projection.project((joint.i_position() + joint.j_position()) / 2.0),
-                        joint.label().to_owned(),
-                    );
+                    if show_labels {
+                        print_label(
+                            context,
+                            projection.project((joint.i_position() + joint.j_position()) / 2.0),
+                            joint.label().to_owned(),
+                        );
+                    }
                 }
 
-                if projection == Projection::Isometric {
-                    draw_axis_triad(context, bounds);
-                }
+                draw_axis_triad(context, bounds, projection);
             })
     }
 
@@ -315,23 +322,32 @@ impl ViewerApp {
         let playback = self.playback_status();
         let (shown_frame, total_frames) = self.frame_counts();
         let status = format!(
-            " {}/{}  {}  {}  {}  {} fps  loop={}",
+            " {}/{}  {}  {}  {} fps  loop={}",
             shown_frame,
             total_frames,
             time,
-            projection_name(self.projection),
             playback,
             self.playback_fps,
             loop_mode_name(self.loop_mode),
         );
 
         let controls = if self.is_solving() {
-            " Space follow  <-/-> inspect  End latest  f/F fit  1/2/3/4 view  q cancel"
+            [
+                " Space follow   ←/→ inspect   End latest   f/F fit   v labels",
+                " 1–4 view   q cancel",
+            ]
         } else {
-            " Space pause  <-/-> step  f/F fit  -/+ fps  l loop  1/2/3/4 view  q quit"
+            [
+                " Space pause   ←/→ step   +/- speed   l loop   v labels",
+                " f/F fit       1–4 view   q quit",
+            ]
         };
 
-        Paragraph::new(vec![TextLine::from(status), TextLine::from(controls)])
+        Paragraph::new(vec![
+            TextLine::from(status),
+            TextLine::from(controls[0]),
+            TextLine::from(controls[1]),
+        ])
     }
 
     fn bounds(&self, area: Rect) -> ProjectedBounds {
@@ -361,8 +377,10 @@ impl ViewerApp {
                     self.frame_index = solved_frames - 1;
                 }
             }
+
             KeyCode::Char('f') => self.fit_current_frame(),
             KeyCode::Char('F') => self.fit_all_frames(),
+            KeyCode::Char('v') => self.show_labels = !self.show_labels,
             KeyCode::Char(' ') if self.is_solving() => {
                 if let Some(live) = &mut self.live {
                     live.follow_latest = !live.follow_latest;
@@ -392,6 +410,7 @@ impl ViewerApp {
                         .unwrap_or(self.frames.len() - 1);
                 }
             }
+
             KeyCode::Right => {
                 self.playing = false;
                 if let Some(live) = &mut self.live {
@@ -635,7 +654,11 @@ fn draw_projected_line(
     });
 }
 
-fn draw_axis_triad(context: &mut ratatui::widgets::canvas::Context<'_>, bounds: ProjectedBounds) {
+fn draw_axis_triad(
+    context: &mut ratatui::widgets::canvas::Context<'_>,
+    bounds: ProjectedBounds,
+    projection: Projection,
+) {
     let min = bounds.min();
     let axis_length = bounds.width().min(bounds.height()) * 0.08;
     let origin = nalgebra::Vector2::new(
@@ -648,7 +671,11 @@ fn draw_axis_triad(context: &mut ratatui::widgets::canvas::Context<'_>, bounds: 
         (nalgebra::Vector3::y(), "y"),
         (nalgebra::Vector3::z(), "z"),
     ] {
-        let direction = Projection::Isometric.project(axis).normalize();
+        let direction = projection.project(axis);
+        if direction == nalgebra::Vector2::zeros() {
+            continue;
+        }
+        let direction = direction.normalize();
         let end = origin + direction * axis_length;
         draw_projected_line(context, origin, end);
         context.print(end.x, end.y, label.to_owned());
@@ -668,15 +695,6 @@ fn label_cell_size(bounds: ProjectedBounds, area: Rect) -> nalgebra::Vector2<f64
         bounds.width() / f64::from(area.width.saturating_sub(2).max(1)),
         bounds.height() / f64::from(area.height.saturating_sub(2).max(1)),
     )
-}
-
-fn projection_name(projection: Projection) -> &'static str {
-    match projection {
-        Projection::Xy => "x-y",
-        Projection::Xz => "x-z",
-        Projection::Yz => "y-z",
-        Projection::Isometric => "iso",
-    }
 }
 
 fn loop_mode_name(loop_mode: LoopMode) -> &'static str {
@@ -812,6 +830,26 @@ mod tests {
     }
 
     #[test]
+    fn toggles_scene_labels() {
+        let mut app = ViewerApp::new(vec![reference_frame()]).unwrap();
+        // Default is false
+
+        app.handle_key(KeyEvent::new(
+            KeyCode::Char('v'),
+            crossterm::event::KeyModifiers::NONE,
+        ));
+
+        assert!(app.show_labels);
+
+        app.handle_key(KeyEvent::new(
+            KeyCode::Char('v'),
+            crossterm::event::KeyModifiers::NONE,
+        ));
+
+        assert!(!app.show_labels);
+    }
+
+    #[test]
     fn bounces_at_both_ends() {
         let frame = reference_frame();
         let mut app = ViewerApp::new(vec![frame.clone(), frame.clone(), frame]).unwrap();
@@ -887,12 +925,8 @@ mod tests {
             .collect::<String>();
         assert!(rendered.contains("Kinemagic"));
         assert!(rendered.contains("reference"));
-        assert!(rendered.contains("x-z"));
         assert!(rendered.contains("10 fps"));
         assert!(rendered.contains("q quit"));
-        assert!(rendered.contains('G'));
-        assert!(rendered.contains("B1"));
-        assert!(rendered.contains("J1"));
         assert!(!rendered.contains("residual"));
         assert!(
             rendered
