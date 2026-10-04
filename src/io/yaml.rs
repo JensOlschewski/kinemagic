@@ -5,10 +5,13 @@ use nalgebra::{UnitQuaternion, Vector3};
 use serde::Deserialize;
 use thiserror::Error;
 
-use crate::model::{
-    Bodies, Body, BodyId, Input, Joint, JointDisplacement, JointId, JointKind, JointRole, Joints,
-    Marker, Model, ModelBuildError, Motion, MotionKind, Point, SolverSettings,
-};
+use crate::model::config::SolverConfig;
+use crate::model::mechanism::body::{Bodies, Body, BodyId};
+use crate::model::mechanism::joint::{Joint, JointId, JointKind, JointRole, Joints};
+use crate::model::mechanism::{Marker, Mechanism, ModelBuildError, Point};
+use crate::model::motion::{JointDisplacement, Motion, MotionKind, Motions};
+use crate::model::{Model, ModelError};
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct YamlInput {
@@ -24,7 +27,7 @@ pub struct YamlInput {
 }
 
 impl YamlInput {
-    pub fn into_input(self) -> Result<Input, YamlError> {
+    pub fn into_model(self) -> Result<Model, YamlError> {
         self.validate()?;
 
         let YamlInput {
@@ -57,21 +60,26 @@ impl YamlInput {
             ),
         );
 
-        let bodies = Bodies::new(body_values)?;
+        let bodies = Bodies::new(body_values).map_err(ModelBuildError::from)?;
 
         let joint_values = joints
             .into_iter()
             .map(|(name, joint)| joint.into_joint(&name, &bodies, &hardpoints))
             .collect::<Result<Vec<Joint>, YamlError>>()?;
 
-        let model = Model::new(bodies, Joints::new(joint_values)?)?;
+        let joints = Joints::new(joint_values).map_err(ModelBuildError::from)?;
+        let model = Mechanism::new(bodies, joints)?;
 
         let motions = motions
             .into_iter()
             .map(|(name, motion)| motion.into_motion(name))
             .collect::<Result<Vec<Motion>, YamlError>>()?;
 
-        Ok(Input::with_solver(model, motions, solver.to_settings()?))
+        Ok(Model::with_solver(
+            model,
+            Motions::new(motions),
+            solver.to_settings()?,
+        )?)
     }
 
     fn validate(&self) -> Result<(), YamlError> {
@@ -347,8 +355,8 @@ impl YamlSolverSettings {
         Ok(())
     }
 
-    fn to_settings(&self) -> Result<SolverSettings, YamlError> {
-        let settings = SolverSettings::new(self.start_time, self.end_time, self.step_size);
+    fn to_settings(&self) -> Result<SolverConfig, YamlError> {
+        let settings = SolverConfig::new(self.start_time, self.end_time, self.step_size);
 
         for (path, value) in [
             ("solver.start_time", settings.start_time()),
@@ -616,6 +624,8 @@ pub enum YamlError {
     UnrepresentableInterval,
     #[error(transparent)]
     Model(#[from] ModelBuildError),
+    #[error(transparent)]
+    Derive(#[from] ModelError),
 }
 
 #[cfg(test)]
@@ -630,7 +640,7 @@ mod tests {
     #[test]
     fn converts_spherical_one_body_parse_into_model() -> Result<(), YamlError> {
         let input = convert(VALID_ONE_BODY_PARSE_INPUT)?;
-        let model = input.model();
+        let model = input.mechanism();
 
         assert_eq!(model.bodies().iter().count(), 2);
         assert_eq!(model.bodies().get(BodyId::GROUND).unwrap().name(), "ground");
@@ -658,7 +668,7 @@ mod tests {
     fn converts_spherical_two_body_parse_into_model() -> Result<(), YamlError> {
         let input = convert(VALID_TWO_BODY_PARSE_INPUT)?;
 
-        let model = input.model();
+        let model = input.mechanism();
 
         assert_eq!(model.bodies().iter().count(), 3);
         assert_eq!(model.joints().iter().count(), 2);
@@ -926,7 +936,7 @@ mod tests {
         ];
 
         for (yaml, expected_path) in cases {
-            let result = parse_yaml_str(&yaml).unwrap().into_input();
+            let result = parse_yaml_str(&yaml).unwrap().into_model();
             let error = match result {
                 Ok(_) => panic!("non-finite input should fail at {expected_path}"),
                 Err(error) => error,
@@ -946,7 +956,7 @@ mod tests {
             "{valid}\nmotions:\n  RotateJ1:\n    kind: joint-coordinates\n    joint_id: 1\n    displacement: {{}}\n"
         );
 
-        let result = parse_yaml_str(&yaml).unwrap().into_input();
+        let result = parse_yaml_str(&yaml).unwrap().into_model();
 
         assert!(matches!(
             result,
@@ -961,8 +971,8 @@ mod tests {
             .replace("position: [0.0, 0.0, -100.0]", "position: [0.0, 0.0, 0.0]")
             .replacen("euler_angles: [0, 0, 0]", "euler_angles: [90, 0, 0]", 1);
 
-        let input = parse_yaml_str(&input)?.into_input()?;
-        let model = input.model();
+        let input = parse_yaml_str(&input)?.into_model()?;
+        let model = input.mechanism();
         let body = model.bodies().get(BodyId::new(1)).unwrap();
         let joint = model.joints().iter().next().unwrap();
         let expected_world_point = Vector3::new(1.0, 0.0, 0.0);
@@ -988,7 +998,7 @@ mod tests {
     fn rejects_unknown_marker_hardpoint() -> Result<(), YamlError> {
         let input = VALID_ONE_BODY_PARSE_INPUT.replacen("position: P1", "position: missing", 1);
 
-        let result = parse_yaml_str(&input)?.into_input();
+        let result = parse_yaml_str(&input)?.into_model();
 
         assert!(matches!(
             result,
@@ -1004,7 +1014,7 @@ mod tests {
         let input =
             VALID_ONE_BODY_PARSE_INPUT.replace("points_on_body: [P1]", "points_on_body: [missing]");
 
-        let result = parse_yaml_str(&input)?.into_input();
+        let result = parse_yaml_str(&input)?.into_model();
 
         assert!(matches!(
             result,
@@ -1019,7 +1029,7 @@ mod tests {
     fn rejects_unknown_marker_body() -> Result<(), YamlError> {
         let input = VALID_ONE_BODY_PARSE_INPUT.replacen("body_id: 0", "body_id: 99", 1);
 
-        let result = parse_yaml_str(&input)?.into_input();
+        let result = parse_yaml_str(&input)?.into_model();
 
         assert!(matches!(
             result,
@@ -1033,7 +1043,7 @@ mod tests {
     fn rejects_explicit_ground_body() -> Result<(), YamlError> {
         let input = VALID_ONE_BODY_PARSE_INPUT.replacen("body_id: 1", "body_id: 0", 1);
 
-        let result = parse_yaml_str(&input)?.into_input();
+        let result = parse_yaml_str(&input)?.into_model();
 
         assert!(matches!(
             result,
@@ -1087,7 +1097,6 @@ mod tests {
             (None, JointRole::Auto),
             (Some("auto"), JointRole::Auto),
             (Some("primary"), JointRole::Primary),
-            (Some("secondary"), JointRole::Secondary),
         ];
 
         for (role, expected) in cases {
@@ -1100,8 +1109,8 @@ mod tests {
                 ),
             };
 
-            let input = parse_yaml_str(&yaml)?.into_input()?;
-            let actual = input.model().joints().iter().next().unwrap().role();
+            let input = parse_yaml_str(&yaml)?.into_model()?;
+            let actual = input.mechanism().joints().iter().next().unwrap().role();
 
             assert_eq!(actual, expected);
         }
@@ -1110,12 +1119,25 @@ mod tests {
     }
 
     #[test]
-    fn converts_inline_marker_position() -> Result<(), YamlError> {
-        let valid =
-            VALID_ONE_BODY_PARSE_INPUT.replacen("position: P1", "position: [1.0, 2.0, 3.0]", 1);
+    fn secondary_only_joint_fails_model_construction() {
+        let yaml = VALID_ONE_BODY_PARSE_INPUT.replacen(
+            "    kind: spherical\n",
+            "    kind: spherical\n    role: secondary\n",
+            1,
+        );
 
-        let input = parse_yaml_str(&valid)?.into_input()?;
-        let model = input.model();
+        assert!(matches!(
+            convert(&yaml),
+            Err(YamlError::Derive(ModelError::Topology(_)))
+        ));
+    }
+
+    #[test]
+    fn converts_inline_marker_position() -> Result<(), YamlError> {
+        let valid = VALID_ONE_BODY_PARSE_INPUT.replace("position: P1", "position: [1.0, 2.0, 3.0]");
+
+        let input = parse_yaml_str(&valid)?.into_model()?;
+        let model = input.mechanism();
         let joint = model.joints().iter().next().unwrap();
 
         assert_eq!(joint.i_marker().position(), Vector3::new(1.0, 2.0, 3.0));
@@ -1147,7 +1169,7 @@ mod tests {
         assert!(matches!(result, Err(YamlError::Parse { .. })));
     }
 
-    fn convert(yaml: &str) -> Result<Input, YamlError> {
-        parse_yaml_str(yaml)?.into_input()
+    fn convert(yaml: &str) -> Result<Model, YamlError> {
+        parse_yaml_str(yaml)?.into_model()
     }
 }

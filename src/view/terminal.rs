@@ -719,9 +719,9 @@ mod tests {
             "../../tests/fixtures/spherical_one_body_parse.yaml"
         ))
         .unwrap()
-        .into_input()
+        .into_model()
         .unwrap();
-        ViewFrame::reference(Scene::from_reference(input.model()))
+        ViewFrame::reference(Scene::from_reference(input.mechanism()))
     }
 
     #[test]

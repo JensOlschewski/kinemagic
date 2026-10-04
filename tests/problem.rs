@@ -1,16 +1,16 @@
-use kinemagic::io::yaml::parse_yaml_str;
-use kinemagic::model::{BodyId, JointId};
-use kinemagic::problem::{JointCoordinateError, PrepareError, prepare};
+use kinemagic::io::yaml::{YamlError, parse_yaml_str};
+use kinemagic::model::mechanism::{BodyId, JointId};
+use kinemagic::model::{ModelError, coordinates::JointCoordinateError};
 use nalgebra::{UnitQuaternion, Vector3};
 
 #[test]
 fn prepares_ordered_steps_with_resolved_coordinates() {
     let yaml = include_str!("fixtures/spherical_two_body_motion.yaml");
-    let input = parse_yaml_str(yaml).unwrap().into_input().unwrap();
+    let input = parse_yaml_str(yaml).unwrap().into_model().unwrap();
 
-    let problem = prepare(input).unwrap();
+    let problem = input;
 
-    assert_eq!(problem.model().bodies().iter().count(), 3);
+    assert_eq!(problem.mechanism().bodies().iter().count(), 3);
     assert_eq!(problem.tree_edges().len(), 2);
     assert_eq!(problem.tree_edges()[0].parent_body_id(), BodyId::GROUND);
     assert_eq!(problem.tree_edges()[0].child_body_id(), BodyId::new(1));
@@ -51,10 +51,10 @@ fn yaml_name_order_does_not_change_prepared_steps() {
         .replace("joint_id: 1", "joint_id: 9")
         .replace("  J2:", "  AChild:")
         .replace("joint_id: 2", "joint_id: 1");
-    let root_first = prepare(parse_yaml_str(&root_first).unwrap().into_input().unwrap()).unwrap();
-    let child_first = prepare(parse_yaml_str(&child_first).unwrap().into_input().unwrap()).unwrap();
+    let root_first = parse_yaml_str(&root_first).unwrap().into_model().unwrap();
+    let child_first = parse_yaml_str(&child_first).unwrap().into_model().unwrap();
 
-    let step_ids = |problem: &kinemagic::problem::PreparedProblem| {
+    let step_ids = |problem: &kinemagic::model::Model| {
         problem
             .tree_edges()
             .iter()
@@ -98,16 +98,16 @@ joints:
 "#,
     )
     .unwrap()
-    .into_input()
+    .into_model()
     .unwrap();
-    let problem = prepare(input).unwrap();
+    let problem = input;
     let edge = &problem.tree_edges()[0];
     let displacement = Vector3::new(0.4, -0.3, 0.2);
     let displacement_rate = Vector3::new(-0.2, 0.5, 0.7);
 
     assert_eq!(
         edge.direction(),
-        kinemagic::problem::TraversalDirection::JToI
+        kinemagic::model::topology::TraversalDirection::JToI
     );
     assert!(
         edge.traversal_relative_orientation(displacement)
@@ -130,18 +130,16 @@ fn exposes_typed_preparation_errors() {
         "{}\nmotions:\n  Unknown:\n    kind: joint-coordinates\n    joint_id: 99\n    displacement:\n      rot_x: 90.0\n",
         include_str!("fixtures/spherical_one_body_parse.yaml")
     );
-    let input = parse_yaml_str(&yaml).unwrap().into_input().unwrap();
-
-    let error = match prepare(input) {
-        Ok(_) => panic!("unknown motion joint should fail preparation"),
+    let error = match parse_yaml_str(&yaml).unwrap().into_model() {
+        Ok(_) => panic!("unknown motion joint should fail model construction"),
         Err(error) => error,
     };
 
     assert!(matches!(
         error,
-        PrepareError::Coordinates(JointCoordinateError::UnknownJoint {
+        YamlError::Derive(ModelError::Coordinates(JointCoordinateError::UnknownJoint {
             motion_name,
             joint_id,
-        }) if motion_name == "Unknown" && joint_id == JointId::new(99)
+        })) if motion_name == "Unknown" && joint_id == JointId::new(99)
     ));
 }
