@@ -3,8 +3,9 @@ use std::collections::BTreeMap;
 use nalgebra::{DMatrix, Matrix3, UnitQuaternion, Vector3};
 use thiserror::Error;
 
+use crate::data::Data;
+use crate::data::coordinates::{GeneralizedCoordinates, GeneralizedCoordinatesError};
 use crate::model::Model;
-use crate::model::coordinates::{Configuration, ConfigurationError};
 use crate::model::mechanism::joint::spherical;
 use crate::model::mechanism::{BodyId, JointId, JointKind};
 use crate::model::topology::TraversalDirection;
@@ -17,7 +18,7 @@ pub fn tree_poses(problem: &Model) -> BodyPoses {
 pub fn tree_poses_at(problem: &Model, time: f64) -> BodyPoses {
     tree_poses_for_configuration_at(
         problem,
-        &Configuration::new(problem.coordinate_layout()),
+        &GeneralizedCoordinates::new(problem.coordinate_layout()),
         time,
     )
     .expect("new configuration matches problem layout")
@@ -37,7 +38,7 @@ pub fn tree_poses_for_candidates_at(
 ) -> BodyPoses {
     tree_poses_for_configuration_at(
         problem,
-        &Configuration::from_candidates(problem.coordinate_layout(), candidates),
+        &GeneralizedCoordinates::from_candidates(problem.coordinate_layout(), candidates),
         time,
     )
     .expect("candidate configuration matches problem layout")
@@ -45,16 +46,31 @@ pub fn tree_poses_for_candidates_at(
 
 pub fn tree_poses_for_configuration(
     problem: &Model,
-    configuration: &Configuration,
-) -> Result<BodyPoses, ConfigurationError> {
+    configuration: &GeneralizedCoordinates,
+) -> Result<BodyPoses, GeneralizedCoordinatesError> {
     tree_poses_for_configuration_at(problem, configuration, 0.0)
 }
 
 pub fn tree_poses_for_configuration_at(
     problem: &Model,
-    configuration: &Configuration,
+    configuration: &GeneralizedCoordinates,
     time: f64,
-) -> Result<BodyPoses, ConfigurationError> {
+) -> Result<BodyPoses, GeneralizedCoordinatesError> {
+    let mut data = Data::new();
+    evaluate_tree_poses_at(problem, configuration, time, &mut data)?;
+    Ok(data
+        .into_body_poses()
+        .expect("evaluation produced body poses"))
+}
+
+/// Updates body poses in `data` for the given configuration and time.
+/// A layout error leaves previous results unchanged.
+pub fn evaluate_tree_poses_at(
+    problem: &Model,
+    configuration: &GeneralizedCoordinates,
+    time: f64,
+    data: &mut Data,
+) -> Result<(), GeneralizedCoordinatesError> {
     configuration.validate_layout(problem.coordinate_layout())?;
     let mut poses = BTreeMap::new();
     poses.insert(
@@ -74,8 +90,15 @@ pub fn tree_poses_for_configuration_at(
             TraversalDirection::IToJ => (joint.i_marker(), joint.j_marker()),
             TraversalDirection::JToI => (joint.j_marker(), joint.i_marker()),
         };
-        let relative_orientation = edge
-            .traversal_relative_orientation_at(time, configuration.joint_values(edge.joint_id()));
+        let coordinate = problem
+            .joint_coordinate(edge.joint_id())
+            .expect("Model contains missing joint coordinate");
+        let orientation =
+            coordinate.relative_orientation_at(time, configuration.joint_values(edge.joint_id()));
+        let relative_orientation = match edge.direction() {
+            TraversalDirection::IToJ => orientation,
+            TraversalDirection::JToI => orientation.inverse(),
+        };
         let child = match joint.kind() {
             JointKind::Spherical => spherical::spherical_child_pose(
                 parent,
@@ -86,12 +109,16 @@ pub fn tree_poses_for_configuration_at(
         };
         poses.insert(edge.child_body_id(), child);
     }
-    Ok(BodyPoses { poses })
+    data.set_body_poses(BodyPoses { poses });
+    Ok(())
 }
 
 pub fn tree_twist_columns(problem: &Model) -> TreeTwistColumns {
-    tree_twist_columns_for_configuration(problem, &Configuration::new(problem.coordinate_layout()))
-        .expect("new configuration matches problem layout")
+    tree_twist_columns_for_configuration(
+        problem,
+        &GeneralizedCoordinates::new(problem.coordinate_layout()),
+    )
+    .expect("new configuration matches problem layout")
 }
 pub fn tree_twist_columns_for_candidates(
     problem: &Model,
@@ -106,22 +133,22 @@ pub fn tree_twist_columns_for_candidates_at(
 ) -> TreeTwistColumns {
     tree_twist_columns_for_configuration_at(
         problem,
-        &Configuration::from_candidates(problem.coordinate_layout(), candidates),
+        &GeneralizedCoordinates::from_candidates(problem.coordinate_layout(), candidates),
         time,
     )
     .expect("candidate configuration matches problem layout")
 }
 pub fn tree_twist_columns_for_configuration(
     problem: &Model,
-    configuration: &Configuration,
-) -> Result<TreeTwistColumns, ConfigurationError> {
+    configuration: &GeneralizedCoordinates,
+) -> Result<TreeTwistColumns, GeneralizedCoordinatesError> {
     tree_twist_columns_for_configuration_at(problem, configuration, 0.0)
 }
 pub fn tree_twist_columns_for_configuration_at(
     problem: &Model,
-    configuration: &Configuration,
+    configuration: &GeneralizedCoordinates,
     time: f64,
-) -> Result<TreeTwistColumns, ConfigurationError> {
+) -> Result<TreeTwistColumns, GeneralizedCoordinatesError> {
     configuration.validate_layout(problem.coordinate_layout())?;
     tree_twist_columns_for_columns_at(
         problem,
@@ -133,11 +160,11 @@ pub fn tree_twist_columns_for_configuration_at(
 }
 fn tree_twist_columns_for_columns_at(
     problem: &Model,
-    configuration: &Configuration,
+    configuration: &GeneralizedCoordinates,
     columns: Vec<(JointId, usize)>,
     include_prescribed: bool,
     time: f64,
-) -> Result<TreeTwistColumns, ConfigurationError> {
+) -> Result<TreeTwistColumns, GeneralizedCoordinatesError> {
     let (columns, body_jacobians) = tree_body_jacobians_for_columns_at(
         problem,
         configuration,
@@ -163,8 +190,11 @@ fn tree_twist_columns_for_columns_at(
 }
 
 pub fn tree_body_jacobians(problem: &Model) -> TreeBodyJacobians {
-    tree_body_jacobians_for_configuration(problem, &Configuration::new(problem.coordinate_layout()))
-        .expect("new configuration matches problem layout")
+    tree_body_jacobians_for_configuration(
+        problem,
+        &GeneralizedCoordinates::new(problem.coordinate_layout()),
+    )
+    .expect("new configuration matches problem layout")
 }
 pub fn tree_body_jacobians_for_candidates(
     problem: &Model,
@@ -179,22 +209,22 @@ pub fn tree_body_jacobians_for_candidates_at(
 ) -> TreeBodyJacobians {
     tree_body_jacobians_for_configuration_at(
         problem,
-        &Configuration::from_candidates(problem.coordinate_layout(), candidates),
+        &GeneralizedCoordinates::from_candidates(problem.coordinate_layout(), candidates),
         time,
     )
     .expect("candidate configuration matches problem layout")
 }
 pub fn tree_body_jacobians_for_configuration(
     problem: &Model,
-    configuration: &Configuration,
-) -> Result<TreeBodyJacobians, ConfigurationError> {
+    configuration: &GeneralizedCoordinates,
+) -> Result<TreeBodyJacobians, GeneralizedCoordinatesError> {
     tree_body_jacobians_for_configuration_at(problem, configuration, 0.0)
 }
 pub fn tree_body_jacobians_for_configuration_at(
     problem: &Model,
-    configuration: &Configuration,
+    configuration: &GeneralizedCoordinates,
     time: f64,
-) -> Result<TreeBodyJacobians, ConfigurationError> {
+) -> Result<TreeBodyJacobians, GeneralizedCoordinatesError> {
     configuration.validate_layout(problem.coordinate_layout())?;
     tree_body_jacobians_for_columns_at(
         problem,
@@ -206,11 +236,11 @@ pub fn tree_body_jacobians_for_configuration_at(
 }
 pub(crate) fn tree_body_jacobians_for_columns_at(
     problem: &Model,
-    configuration: &Configuration,
+    configuration: &GeneralizedCoordinates,
     columns: Vec<(JointId, usize)>,
     include_prescribed: bool,
     time: f64,
-) -> Result<TreeBodyJacobians, ConfigurationError> {
+) -> Result<TreeBodyJacobians, GeneralizedCoordinatesError> {
     let poses = tree_poses_for_configuration_at(problem, configuration, time)?;
     let mut body_jacobians = BTreeMap::from([(BodyId::GROUND, DMatrix::zeros(6, columns.len()))]);
     for edge in problem.tree_edges() {
@@ -239,25 +269,28 @@ pub(crate) fn tree_body_jacobians_for_columns_at(
         let child_marker_offset = child_pose
             .orientation()
             .transform_vector(&child_marker.position());
-        let displacement = edge
-            .joint_coordinate()
-            .resolve_displacement_at(time, configuration.joint_values(edge.joint_id()));
+        let coordinate = problem
+            .joint_coordinate(edge.joint_id())
+            .expect("Model contains missing joint coordinate");
+        let displacement =
+            coordinate.resolve_displacement_at(time, configuration.joint_values(edge.joint_id()));
         let mut relative_angular_velocity = DMatrix::zeros(3, columns.len());
         for (column, (joint_id, component)) in columns.iter().enumerate() {
             let mut displacement_rate = Vector3::zeros();
             if *joint_id == edge.joint_id()
-                && (include_prescribed
-                    || edge
-                        .joint_coordinate()
-                        .free_component_indices()
-                        .contains(component))
+                && (include_prescribed || coordinate.free_component_indices().contains(component))
             {
                 displacement_rate[*component] = 1.0;
             }
-            relative_angular_velocity.set_column(
-                column,
-                &edge.traversal_relative_angular_velocity(displacement, displacement_rate),
-            );
+            let angular_velocity = match edge.direction() {
+                TraversalDirection::IToJ => {
+                    coordinate.relative_angular_velocity(displacement, displacement_rate)
+                }
+                TraversalDirection::JToI => {
+                    coordinate.reverse_relative_angular_velocity(displacement, displacement_rate)
+                }
+            };
+            relative_angular_velocity.set_column(column, &angular_velocity);
         }
         let parent_linear_velocity = parent_jacobian.fixed_rows::<3>(0).into_owned();
         let parent_angular_velocity = parent_jacobian.fixed_rows::<3>(3).into_owned();
@@ -279,7 +312,10 @@ pub(crate) fn tree_body_jacobians_for_columns_at(
 }
 
 pub fn closure_jacobian(problem: &Model) -> Result<DMatrix<f64>, ResidualError> {
-    closure_jacobian_for_configuration(problem, &Configuration::new(problem.coordinate_layout()))
+    closure_jacobian_for_configuration(
+        problem,
+        &GeneralizedCoordinates::new(problem.coordinate_layout()),
+    )
 }
 pub fn closure_jacobian_for_candidates(
     problem: &Model,
@@ -294,19 +330,19 @@ pub fn closure_jacobian_for_candidates_at(
 ) -> Result<DMatrix<f64>, ResidualError> {
     closure_jacobian_for_configuration_at(
         problem,
-        &Configuration::from_candidates(problem.coordinate_layout(), candidates),
+        &GeneralizedCoordinates::from_candidates(problem.coordinate_layout(), candidates),
         time,
     )
 }
 pub fn closure_jacobian_for_configuration(
     problem: &Model,
-    configuration: &Configuration,
+    configuration: &GeneralizedCoordinates,
 ) -> Result<DMatrix<f64>, ResidualError> {
     closure_jacobian_for_configuration_at(problem, configuration, 0.0)
 }
 pub fn closure_jacobian_for_configuration_at(
     problem: &Model,
-    configuration: &Configuration,
+    configuration: &GeneralizedCoordinates,
     time: f64,
 ) -> Result<DMatrix<f64>, ResidualError> {
     closure_jacobian_for_columns_at(
@@ -319,7 +355,7 @@ pub fn closure_jacobian_for_configuration_at(
 }
 pub(crate) fn closure_jacobian_for_columns_at(
     problem: &Model,
-    configuration: &Configuration,
+    configuration: &GeneralizedCoordinates,
     columns: Vec<(JointId, usize)>,
     include_prescribed: bool,
     time: f64,
@@ -618,7 +654,7 @@ pub fn closure_residual_rates(
 #[derive(Debug, Error)]
 pub enum ResidualError {
     #[error(transparent)]
-    Configuration(#[from] ConfigurationError),
+    GeneralizedCoordinates(#[from] GeneralizedCoordinatesError),
     #[error("closure joint `{joint_id:?}` body `{body_id:?}` has no twist")]
     MissingBodyTwist { joint_id: JointId, body_id: BodyId },
 }
@@ -788,7 +824,7 @@ joints:
         let problem = input;
         let candidates = BTreeMap::from([(JointId::new(1), Vector3::new(0.2, 0.1, 0.0))]);
         let configuration =
-            Configuration::from_candidates(problem.coordinate_layout(), &candidates);
+            GeneralizedCoordinates::from_candidates(problem.coordinate_layout(), &candidates);
         let legacy = tree_poses_for_candidates(&problem, &candidates);
         let dense = tree_poses_for_configuration(&problem, &configuration).unwrap();
 
@@ -819,12 +855,57 @@ joints:
         let yaml = include_str!("../../tests/fixtures/spherical_one_body_closed_loop.yaml");
         let first = parse_yaml_str(yaml).unwrap().into_model().unwrap();
         let second = parse_yaml_str(yaml).unwrap().into_model().unwrap();
-        let configuration = Configuration::new(first.coordinate_layout());
+        let configuration = GeneralizedCoordinates::new(first.coordinate_layout());
 
         assert!(matches!(
             tree_poses_for_configuration(&second, &configuration),
-            Err(ConfigurationError::LayoutMismatch)
+            Err(GeneralizedCoordinatesError::LayoutMismatch)
         ));
+    }
+
+    #[test]
+    fn data_holds_last_successful_pose_evaluation() {
+        let yaml = include_str!("../../tests/fixtures/spherical_one_body_closed_loop.yaml");
+        let model = parse_yaml_str(yaml).unwrap().into_model().unwrap();
+        let other_model = parse_yaml_str(yaml).unwrap().into_model().unwrap();
+        let mut q = GeneralizedCoordinates::new(model.coordinate_layout());
+        let mut data = Data::new();
+
+        assert!(data.body_poses().is_none());
+        evaluate_tree_poses_at(&model, &q, 0.0, &mut data).unwrap();
+        let original = data
+            .body_poses()
+            .unwrap()
+            .get(BodyId::new(1))
+            .unwrap()
+            .orientation();
+
+        let column = model
+            .coordinate_layout()
+            .primary_range(JointId::new(1))
+            .unwrap()
+            .start;
+        q.set_primary(column, 0.2).unwrap();
+        evaluate_tree_poses_at(&model, &q, 0.0, &mut data).unwrap();
+        let updated = data
+            .body_poses()
+            .unwrap()
+            .get(BodyId::new(1))
+            .unwrap()
+            .orientation();
+        assert!(original.angle_to(&updated) > 0.1);
+
+        assert!(matches!(
+            evaluate_tree_poses_at(&other_model, &q, 0.0, &mut data),
+            Err(GeneralizedCoordinatesError::LayoutMismatch)
+        ));
+        let retained = data
+            .body_poses()
+            .unwrap()
+            .get(BodyId::new(1))
+            .unwrap()
+            .orientation();
+        assert!(updated.angle_to(&retained) < 1.0e-12);
     }
 
     #[test]

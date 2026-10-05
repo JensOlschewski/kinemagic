@@ -84,8 +84,14 @@ fn solves_reordered_chain_with_simultaneous_motions() {
     assert_complete(&problem, &poses);
     assert_joint_constraints(&problem, &poses);
 
-    let first_orientation = problem.tree_edges()[0].relative_orientation();
-    let second_orientation = problem.tree_edges()[1].relative_orientation();
+    let first_orientation = problem
+        .joint_coordinate(JointId::new(1))
+        .unwrap()
+        .relative_orientation();
+    let second_orientation = problem
+        .joint_coordinate(JointId::new(2))
+        .unwrap()
+        .relative_orientation();
 
     assert_orientation_close(
         poses.get(BodyId::new(1)).unwrap().orientation(),
@@ -294,21 +300,17 @@ fn assert_complete(problem: &Model, poses: &BodyPoses) {
 fn assert_joint_constraints(problem: &Model, poses: &BodyPoses) {
     for edge in problem.tree_edges() {
         let joint = problem.mechanism().joints().get(edge.joint_id()).unwrap();
+        let orientation = problem
+            .joint_coordinate(edge.joint_id())
+            .unwrap()
+            .relative_orientation();
         let parent = poses.get(edge.parent_body_id()).unwrap();
         let child = poses.get(edge.child_body_id()).unwrap();
 
         let (parent_marker, child_marker, relative_orientation) = match edge.direction() {
-            TraversalDirection::IToJ => (
-                joint.i_marker(),
-                joint.j_marker(),
-                edge.relative_orientation(),
-            ),
+            TraversalDirection::IToJ => (joint.i_marker(), joint.j_marker(), orientation),
 
-            TraversalDirection::JToI => (
-                joint.j_marker(),
-                joint.i_marker(),
-                edge.relative_orientation().inverse(),
-            ),
+            TraversalDirection::JToI => (joint.j_marker(), joint.i_marker(), orientation.inverse()),
         };
 
         assert_position_close(

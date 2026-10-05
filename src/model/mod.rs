@@ -4,7 +4,6 @@ pub mod mechanism;
 pub mod motion;
 pub mod spatial;
 pub mod topology;
-pub mod tree_step;
 
 use thiserror::Error;
 
@@ -15,8 +14,7 @@ use coordinates::{
 use mechanism::joint::spherical::SphericalCoordinate;
 use mechanism::{JointId, Mechanism};
 use motion::Motions;
-use topology::{Topology, TopologyError};
-use tree_step::TreeStep;
+use topology::{Topology, TopologyError, TreeEdge};
 
 /// Fully built model: mechanism, motions, solver settings, and the derived
 /// topology, joint coordinates, and coordinate layout.
@@ -27,8 +25,7 @@ pub struct Model {
     motions: Motions,
     solver: SolverConfig,
     joint_coordinates: JointCoordinates,
-    tree_steps: Vec<TreeStep>,
-    closure_joint_ids: Vec<JointId>,
+    topology: Topology,
     coordinate_layout: CoordinateLayout,
 }
 
@@ -55,38 +52,26 @@ impl Model {
         let topology = Topology::build(&mechanism)?;
         let joint_coordinates = resolve_joint_coordinates(&mechanism, &motions)?;
 
-        let tree_steps = topology
+        let primary_coordinates = topology
             .tree_edges()
             .iter()
-            .map(|edge| {
+            .flat_map(|edge| {
                 let coordinate = joint_coordinates
                     .get(edge.joint_id())
                     .expect("topology references a mechanism joint");
-
-                TreeStep::new(
-                    edge.parent_body_id(),
-                    edge.child_body_id(),
-                    edge.joint_id(),
-                    *coordinate,
-                    edge.direction(),
-                )
-            })
-            .collect::<Vec<_>>();
-
-        let primary_coordinates = tree_steps
-            .iter()
-            .flat_map(|step| {
-                (0..step.joint_coordinate().component_count())
-                    .map(move |component| (step.joint_id(), component))
+                (0..coordinate.component_count()).map(move |component| (edge.joint_id(), component))
             })
             .collect();
-        let free_primary_coordinates = tree_steps
+        let free_primary_coordinates = topology
+            .tree_edges()
             .iter()
-            .flat_map(|step| {
-                step.joint_coordinate()
+            .flat_map(|edge| {
+                joint_coordinates
+                    .get(edge.joint_id())
+                    .expect("topology references a mechanism joint")
                     .free_component_indices()
                     .into_iter()
-                    .map(move |component| (step.joint_id(), component))
+                    .map(move |component| (edge.joint_id(), component))
             })
             .collect();
 
@@ -95,8 +80,7 @@ impl Model {
             motions,
             solver,
             joint_coordinates,
-            tree_steps,
-            closure_joint_ids: topology.closure_joint_ids().to_vec(),
+            topology,
             coordinate_layout: CoordinateLayout::new(primary_coordinates, free_primary_coordinates),
         })
     }
@@ -120,14 +104,19 @@ impl Model {
         self.joint_coordinates.get(joint_id)
     }
 
-    /// Returns spanning-tree steps in parent-before-child order.
-    pub fn tree_edges(&self) -> &[TreeStep] {
-        &self.tree_steps
+    /// Returns the rooted topology of the mechanism.
+    pub fn topology(&self) -> &Topology {
+        &self.topology
+    }
+
+    /// Returns spanning-tree edges in parent-before-child order.
+    pub fn tree_edges(&self) -> &[TreeEdge] {
+        self.topology.tree_edges()
     }
 
     /// Returns joints that close loops in the mechanism.
     pub fn closure_joint_ids(&self) -> &[JointId] {
-        &self.closure_joint_ids
+        self.topology.closure_joint_ids()
     }
 
     pub fn free_primary_coordinates(&self) -> Vec<(JointId, usize)> {

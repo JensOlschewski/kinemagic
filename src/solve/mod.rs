@@ -46,8 +46,8 @@ use std::collections::BTreeMap;
 use nalgebra::{DMatrix, DVector, Vector3};
 use thiserror::Error;
 
+use crate::data::coordinates::GeneralizedCoordinates;
 use crate::model::Model;
-use crate::model::coordinates::Configuration;
 use crate::model::mechanism::JointId;
 use evaluation::{closure_jacobian_for_columns_at, closure_residuals_at};
 
@@ -57,7 +57,7 @@ pub use crate::solve::evaluation::{
     closure_jacobian_for_candidates_at, closure_jacobian_for_configuration,
     closure_jacobian_for_configuration_at, closure_orientation_residual_rates,
     closure_orientation_residuals, closure_position_residual_rates, closure_position_residuals,
-    closure_residual_rates, closure_residuals, tree_body_jacobians,
+    closure_residual_rates, closure_residuals, evaluate_tree_poses_at, tree_body_jacobians,
     tree_body_jacobians_for_candidates, tree_body_jacobians_for_candidates_at,
     tree_body_jacobians_for_configuration, tree_body_jacobians_for_configuration_at, tree_poses,
     tree_poses_at, tree_poses_for_candidates, tree_poses_for_candidates_at,
@@ -81,7 +81,7 @@ const CLOSED_LOOP_STEP_TOLERANCE: f64 = 1.0e-12;
 /// joint coordinates. A failed solve leaves the stored solution unchanged.
 pub struct SequenceSolver<'a> {
     problem: &'a Model,
-    candidates: Configuration,
+    candidates: GeneralizedCoordinates,
     has_previous_solution: bool,
 }
 
@@ -94,7 +94,7 @@ impl<'a> SequenceSolver<'a> {
             problem,
 
             // Joint-coordinate values retained from the last successful solve.
-            candidates: Configuration::new(problem.coordinate_layout()),
+            candidates: GeneralizedCoordinates::new(problem.coordinate_layout()),
 
             // Distinguishes initial solving from continuation state, even when
             // the configuration is zero.
@@ -168,7 +168,7 @@ pub fn solve_at_with_progress<F>(
 where
     F: FnMut(SolverProgress),
 {
-    let mut candidates = Configuration::new(problem.coordinate_layout());
+    let mut candidates = GeneralizedCoordinates::new(problem.coordinate_layout());
     let result = solve_at_internal(problem, time, &mut candidates, false, &mut progress);
     if result.is_err() {
         progress(SolverProgress::Failed);
@@ -179,7 +179,7 @@ where
 fn solve_at_internal(
     problem: &Model,
     time: f64,
-    candidates: &mut Configuration,
+    candidates: &mut GeneralizedCoordinates,
     continuation: bool,
     progress: &mut dyn FnMut(SolverProgress),
 ) -> Result<BodyPoses, SolverError> {
@@ -203,7 +203,7 @@ pub fn validate_time(time: f64) -> Result<(), SolverError> {
 fn solve_closed_loop(
     problem: &Model,
     time: f64,
-    candidates: &mut Configuration,
+    candidates: &mut GeneralizedCoordinates,
     continuation: bool,
     progress: &mut dyn FnMut(SolverProgress),
 ) -> Result<BodyPoses, SolverError> {
@@ -367,19 +367,19 @@ pub fn analyze_closure_jacobian_at(
 ) -> Result<ClosureJacobian, JacobianError> {
     analyze_closure_jacobian_for_configuration_at(
         problem,
-        &Configuration::from_candidates(problem.coordinate_layout(), candidates),
+        &GeneralizedCoordinates::from_candidates(problem.coordinate_layout(), candidates),
         time,
     )
 }
 pub fn analyze_closure_jacobian_for_configuration(
     problem: &Model,
-    configuration: &Configuration,
+    configuration: &GeneralizedCoordinates,
 ) -> Result<ClosureJacobian, JacobianError> {
     analyze_closure_jacobian_for_configuration_at(problem, configuration, 0.0)
 }
 pub fn analyze_closure_jacobian_for_configuration_at(
     problem: &Model,
-    configuration: &Configuration,
+    configuration: &GeneralizedCoordinates,
     time: f64,
 ) -> Result<ClosureJacobian, JacobianError> {
     let columns = problem.primary_coordinates();
