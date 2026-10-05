@@ -414,16 +414,15 @@ fn closure_jacobian_from_body_jacobians(
                 body_id: joint.j_marker().body_id(),
             },
         )?;
-        let i_marker_offset = i_pose
-            .orientation()
-            .transform_vector(&joint.i_marker().position());
-        let j_marker_offset = j_pose
-            .orientation()
-            .transform_vector(&joint.j_marker().position());
-        let position_block = i_jacobian.fixed_rows::<3>(0).into_owned()
-            - i_marker_offset.cross_matrix() * i_jacobian.fixed_rows::<3>(3)
-            - j_jacobian.fixed_rows::<3>(0).into_owned()
-            + j_marker_offset.cross_matrix() * j_jacobian.fixed_rows::<3>(3);
+        let (i_block, j_block) = match joint.kind() {
+            JointKind::Spherical => spherical::position_constraint_blocks(
+                i_pose,
+                joint.i_marker(),
+                j_pose,
+                joint.j_marker(),
+            ),
+        };
+        let position_block = i_block * i_jacobian.rows(0, 6) + j_block * j_jacobian.rows(0, 6);
         jacobian
             .rows_mut(3 * closure_index, 3)
             .copy_from(&position_block);
