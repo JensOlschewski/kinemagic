@@ -278,6 +278,55 @@ joints:
     }
 
     #[test]
+    fn revolute_joint_rotates_child_body_about_marker_z_axis() {
+        let yaml = r#"hardpoints:
+  P1: [0.0, 0.0, 0.0]
+  P2: [100.0, 0.0, 0.0]
+bodies:
+  B1:
+    body_id: 1
+    side: single
+    position: [100.0, 0.0, 0.0]
+    orientation:
+      method: euler
+      euler_angles: [0, 0, 0]
+    points_on_body: [P2]
+joints:
+  J1:
+    joint_id: 1
+    kind: revolute
+    i:
+      body_id: 0
+      position: P1
+      orientation:
+        method: euler
+        euler_angles: [0, 0, 0]
+    j:
+      body_id: 1
+      position: P1
+      orientation:
+        method: euler
+        euler_angles: [0, 0, 0]
+motions:
+  RotateJ1:
+    kind: joint-coordinates
+    joint_id: 1
+    displacement:
+      rot_z: 90.0
+"#;
+        let problem = parse_yaml_str(yaml).unwrap().into_model().unwrap();
+        let configuration = GeneralizedCoordinates::new(problem.coordinate_layout());
+        let poses = tree_poses_for_configuration_at(&problem, &configuration, 0.0).unwrap();
+        let body = poses.get(BodyId::new(1)).unwrap();
+
+        let expected_orientation =
+            UnitQuaternion::from_axis_angle(&Vector3::z_axis(), std::f64::consts::FRAC_PI_2);
+
+        assert!(body.orientation().angle_to(&expected_orientation) < 1.0e-12);
+        assert!((body.position() - Vector3::new(0.0, 100.0, 0.0)).norm() < 1.0e-9);
+    }
+
+    #[test]
     fn preserves_non_contiguous_free_primary_columns() {
         let yaml = include_str!("../../tests/fixtures/spherical_one_body_closed_loop.yaml")
             .replace("      rot_z: 90", "      rot_x: 10\n      rot_z: 90");

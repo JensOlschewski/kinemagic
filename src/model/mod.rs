@@ -9,9 +9,9 @@ use thiserror::Error;
 
 use config::SolverConfig;
 use coordinates::{
-    CoordinateLayout, JointCoordinateError, JointCoordinates, resolve_joint_coordinates,
+    CoordinateLayout, JointCoordinate, JointCoordinateError, JointCoordinates,
+    resolve_joint_coordinates,
 };
-use mechanism::joint::spherical::SphericalCoordinate;
 use mechanism::{JointId, Mechanism};
 use motion::Motions;
 use topology::{Topology, TopologyError, TreeEdge};
@@ -100,7 +100,7 @@ impl Model {
         self.solver
     }
 
-    pub fn joint_coordinate(&self, joint_id: JointId) -> Option<&SphericalCoordinate> {
+    pub fn joint_coordinate(&self, joint_id: JointId) -> Option<&JointCoordinate> {
         self.joint_coordinates.get(joint_id)
     }
 
