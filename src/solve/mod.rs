@@ -1,79 +1,36 @@
-//! API Considerations
+//! Kinematic solving of a prepared [`Model`].
 //!
-//! BodyPose
-//! - new
-//! - position
-//! - orientation
-//! - marker_position
-//! - marker_orientation
-//!
-//! BodyTwist
-//! - new
-//! - linear_velocity
-//! - angular_velocity
-//! - marker_linear_velocity
-//!
-//! KinematicSolver
-//! - new
-//! - solve(Option<time>)
-//! - solve_with_progress(Option<time>)
-//!
-//! JointRelativeDisplacement (maybe define this in model or problem?)
-//! -
-//!
-//!
-//!
-//! SolverFlow Considerations
-//!
-//! 1) tree_poses_for_candidates_at
-//! - spherical_child_pose, dispatcher for this -> joint_child_pose (keep it simple)
-//!
-//! 2) closure_residuals (position level)
-//!
-//! Does it make sense to use one matrix here, which calculates all residuals at once?
-//!
-//! Matrix Construction vs. Single Solve
-//!
-//! 3) closure_residuals_rate (velocity level)
-//!
-//!
+//! - [`tree`]: forward kinematics over the spanning tree (poses, body Jacobians).
+//! - [`closure`]: loop-closure residuals, Jacobians, and the Newton solve.
+//! - [`SequenceSolver`]: stateful entry point that dispatches between the two.
 
-pub mod evaluation;
+pub mod closure;
 pub mod state;
+pub mod tree;
 
-use std::collections::BTreeMap;
-
-use nalgebra::{DMatrix, DVector, Vector3};
 use thiserror::Error;
 
 use crate::data::coordinates::GeneralizedCoordinates;
 use crate::model::Model;
-use crate::model::mechanism::JointId;
-use evaluation::{closure_jacobian_for_columns_at, closure_residuals_at};
+use closure::newton::solve_closed_loop;
 
 pub use crate::model::mechanism::joint::spherical::spherical_child_pose;
-pub use crate::solve::evaluation::{
-    ResidualError, closure_jacobian, closure_jacobian_for_candidates,
-    closure_jacobian_for_candidates_at, closure_jacobian_for_configuration,
-    closure_jacobian_for_configuration_at, closure_orientation_residual_rates,
-    closure_orientation_residuals, closure_position_residual_rates, closure_position_residuals,
-    closure_residual_rates, closure_residuals, evaluate_tree_poses_at, tree_body_jacobians,
-    tree_body_jacobians_for_candidates, tree_body_jacobians_for_candidates_at,
-    tree_body_jacobians_for_configuration, tree_body_jacobians_for_configuration_at, tree_poses,
-    tree_poses_at, tree_poses_for_candidates, tree_poses_for_candidates_at,
-    tree_poses_for_configuration, tree_poses_for_configuration_at, tree_twist_columns,
-    tree_twist_columns_for_candidates, tree_twist_columns_for_candidates_at,
-    tree_twist_columns_for_configuration, tree_twist_columns_for_configuration_at,
+pub use crate::solve::closure::analysis::{
+    ClosureJacobian, JacobianError, analyze_closure_jacobian_at,
+};
+pub use crate::solve::closure::{
+    ResidualError, closure_jacobian_for_configuration_at, closure_orientation_residual_rates,
+    closure_orientation_residuals_at, closure_position_residual_rates, closure_position_residuals,
+    closure_residual_rates, closure_residuals_at,
 };
 pub use crate::solve::state::{
     BodyJacobian, BodyJacobians, BodyPose, BodyPoses, BodyTwist, TreeBodyJacobians,
     TreeTwistColumns,
 };
-
-const CLOSED_LOOP_MAX_ITERATIONS: usize = 50;
-const CLOSED_LOOP_MAX_BACKTRACKS: usize = 32;
-const CLOSED_LOOP_RESIDUAL_TOLERANCE: f64 = 1.0e-10;
-const CLOSED_LOOP_STEP_TOLERANCE: f64 = 1.0e-12;
+pub use crate::solve::tree::{
+    evaluate_tree_poses_at, tree_body_jacobians_for_configuration_at,
+    tree_poses_for_configuration_at, tree_twist_columns_for_configuration_at,
+};
 
 /// Solves mechanism configurations at successive evaluation times.
 ///
@@ -137,7 +94,7 @@ impl<'a> SequenceSolver<'a> {
         F: FnMut(SolverProgress),
     {
         let mut candidates = self.candidates.clone();
-        let result = solve_at_internal(
+        let result = solve_candidates(
             self.problem,
             time,
             &mut candidates,
@@ -157,26 +114,23 @@ impl<'a> SequenceSolver<'a> {
 pub fn solve(problem: &Model) -> Result<BodyPoses, SolverError> {
     solve_at(problem, 0.0)
 }
+
 pub fn solve_at(problem: &Model, time: f64) -> Result<BodyPoses, SolverError> {
     SequenceSolver::new(problem).solve_at(time)
 }
+
 pub fn solve_at_with_progress<F>(
     problem: &Model,
     time: f64,
-    mut progress: F,
+    progress: F,
 ) -> Result<BodyPoses, SolverError>
 where
     F: FnMut(SolverProgress),
 {
-    let mut candidates = GeneralizedCoordinates::new(problem.coordinate_layout());
-    let result = solve_at_internal(problem, time, &mut candidates, false, &mut progress);
-    if result.is_err() {
-        progress(SolverProgress::Failed);
-    }
-    result
+    SequenceSolver::new(problem).solve_at_with_progress(time, progress)
 }
 
-fn solve_at_internal(
+fn solve_candidates(
     problem: &Model,
     time: f64,
     candidates: &mut GeneralizedCoordinates,
@@ -198,271 +152,6 @@ pub fn validate_time(time: f64) -> Result<(), SolverError> {
     } else {
         Err(SolverError::NonFiniteTime { time })
     }
-}
-
-fn solve_closed_loop(
-    problem: &Model,
-    time: f64,
-    candidates: &mut GeneralizedCoordinates,
-    continuation: bool,
-    progress: &mut dyn FnMut(SolverProgress),
-) -> Result<BodyPoses, SolverError> {
-    for iteration in 0..CLOSED_LOOP_MAX_ITERATIONS {
-        let poses = tree_poses_for_configuration_at(problem, candidates, time)
-            .expect("solver configuration matches problem layout");
-        let residuals = closure_residuals_at(problem, &poses, time);
-        let residual_norm = DVector::from_vec(residuals.clone()).norm();
-        if !residual_norm.is_finite() {
-            return Err(SolverError::NonFiniteResidual);
-        }
-        progress(SolverProgress::Residual {
-            iteration: iteration + 1,
-            residual_norm,
-        });
-        if residual_norm <= CLOSED_LOOP_RESIDUAL_TOLERANCE {
-            progress(SolverProgress::Converged {
-                iterations: iteration,
-                residual_norm,
-            });
-            return Ok(poses);
-        }
-        let analysis = analyze_closure_jacobian_for_configuration_at(problem, candidates, time)?;
-        let free_coordinate_count = problem.free_primary_coordinates().len();
-        if !continuation && free_coordinate_count > analysis.selected_columns().len() {
-            return Err(SolverError::UnderDetermined {
-                free_coordinates: free_coordinate_count,
-                dependent_coordinates: analysis.selected_columns().len(),
-                remaining_dofs: free_coordinate_count - analysis.selected_columns().len(),
-            });
-        }
-        let selected = analysis.selected_columns();
-        if selected.is_empty() {
-            return Err(SolverError::NoIndependentCoordinates);
-        }
-        let jacobian = DMatrix::from_columns(
-            &selected
-                .iter()
-                .map(|column| analysis.matrix().column(*column).into_owned())
-                .collect::<Vec<_>>(),
-        );
-        let step = jacobian
-            .svd(true, true)
-            .solve(&(-DVector::from_vec(residuals)), analysis.tolerance())
-            .map_err(SolverError::LinearSolveFailed)?;
-        if step.iter().any(|value| !value.is_finite()) {
-            return Err(SolverError::NonFiniteStep);
-        }
-        let mut accepted_candidates = None;
-        let mut accepted_step_norm = 0.0;
-        for attempt in 0..CLOSED_LOOP_MAX_BACKTRACKS {
-            let scale = 0.5_f64.powi(attempt as i32);
-            let mut trial_candidates = candidates.clone();
-            for (index, column) in selected.iter().enumerate() {
-                trial_candidates
-                    .add_primary(*column, scale * step[index])
-                    .expect("closure Jacobian columns belong to configuration");
-            }
-            let trial_poses = tree_poses_for_configuration_at(problem, &trial_candidates, time)
-                .expect("solver configuration matches problem layout");
-            let trial_residual_norm =
-                DVector::from_vec(closure_residuals_at(problem, &trial_poses, time)).norm();
-            if trial_residual_norm.is_finite() && trial_residual_norm < residual_norm {
-                accepted_step_norm = scale * step.norm();
-                accepted_candidates = Some(trial_candidates);
-                break;
-            }
-        }
-        let Some(updated_candidates) = accepted_candidates else {
-            return Err(SolverError::NonConvergent {
-                iterations: iteration + 1,
-                residual_norm,
-            });
-        };
-        progress(SolverProgress::StepAccepted {
-            iteration: iteration + 1,
-            residual_norm,
-            step_norm: accepted_step_norm,
-            damping_factor: accepted_step_norm / step.norm(),
-            selected_rank: analysis.rank(),
-        });
-        *candidates = updated_candidates;
-        if accepted_step_norm <= CLOSED_LOOP_STEP_TOLERANCE {
-            let updated_poses = tree_poses_for_configuration_at(problem, candidates, time)
-                .expect("solver configuration matches problem layout");
-            let updated_residual_norm =
-                DVector::from_vec(closure_residuals_at(problem, &updated_poses, time)).norm();
-            if !updated_residual_norm.is_finite() {
-                return Err(SolverError::NonFiniteResidual);
-            }
-            if updated_residual_norm <= CLOSED_LOOP_RESIDUAL_TOLERANCE {
-                progress(SolverProgress::Converged {
-                    iterations: iteration + 1,
-                    residual_norm: updated_residual_norm,
-                });
-                return Ok(updated_poses);
-            }
-            return Err(SolverError::NonConvergent {
-                iterations: iteration + 1,
-                residual_norm: updated_residual_norm,
-            });
-        }
-    }
-    let poses = tree_poses_for_configuration_at(problem, candidates, time)
-        .expect("solver configuration matches problem layout");
-    let residual_norm = DVector::from_vec(closure_residuals_at(problem, &poses, time)).norm();
-    if !residual_norm.is_finite() {
-        return Err(SolverError::NonFiniteResidual);
-    }
-    Err(SolverError::NonConvergent {
-        iterations: CLOSED_LOOP_MAX_ITERATIONS,
-        residual_norm,
-    })
-}
-
-#[derive(Debug)]
-pub struct ClosureJacobian {
-    matrix: DMatrix<f64>,
-    columns: Vec<(JointId, usize)>,
-    selected_columns: Vec<usize>,
-    rank: usize,
-    tolerance: f64,
-}
-impl ClosureJacobian {
-    pub fn matrix(&self) -> &DMatrix<f64> {
-        &self.matrix
-    }
-    pub fn columns(&self) -> &[(JointId, usize)] {
-        &self.columns
-    }
-    pub fn selected_columns(&self) -> &[usize] {
-        &self.selected_columns
-    }
-    pub fn selected_coordinates(&self) -> Vec<(JointId, usize)> {
-        self.selected_columns
-            .iter()
-            .map(|column| self.columns[*column])
-            .collect()
-    }
-    pub fn rank(&self) -> usize {
-        self.rank
-    }
-    pub fn tolerance(&self) -> f64 {
-        self.tolerance
-    }
-    pub fn residual_dimension(&self) -> usize {
-        self.matrix.nrows()
-    }
-}
-
-pub fn analyze_closure_jacobian(
-    problem: &Model,
-    candidates: &BTreeMap<JointId, Vector3<f64>>,
-) -> Result<ClosureJacobian, JacobianError> {
-    analyze_closure_jacobian_at(problem, candidates, 0.0)
-}
-pub fn analyze_closure_jacobian_at(
-    problem: &Model,
-    candidates: &BTreeMap<JointId, Vector3<f64>>,
-    time: f64,
-) -> Result<ClosureJacobian, JacobianError> {
-    analyze_closure_jacobian_for_configuration_at(
-        problem,
-        &GeneralizedCoordinates::from_candidates(problem.coordinate_layout(), candidates),
-        time,
-    )
-}
-pub fn analyze_closure_jacobian_for_configuration(
-    problem: &Model,
-    configuration: &GeneralizedCoordinates,
-) -> Result<ClosureJacobian, JacobianError> {
-    analyze_closure_jacobian_for_configuration_at(problem, configuration, 0.0)
-}
-pub fn analyze_closure_jacobian_for_configuration_at(
-    problem: &Model,
-    configuration: &GeneralizedCoordinates,
-    time: f64,
-) -> Result<ClosureJacobian, JacobianError> {
-    let columns = problem.primary_coordinates();
-    let free_columns = problem.free_primary_coordinates();
-    let matrix =
-        closure_jacobian_for_columns_at(problem, configuration, columns.clone(), true, time)?;
-    let free_indices = columns
-        .iter()
-        .enumerate()
-        .filter_map(|(index, column)| free_columns.contains(column).then_some(index))
-        .collect::<Vec<_>>();
-    let free_matrix = if free_indices.is_empty() {
-        DMatrix::zeros(matrix.nrows(), 0)
-    } else {
-        DMatrix::from_columns(
-            &free_indices
-                .iter()
-                .map(|index| matrix.column(*index).into_owned())
-                .collect::<Vec<_>>(),
-        )
-    };
-    if matrix
-        .iter()
-        .chain(free_matrix.iter())
-        .any(|value| !value.is_finite())
-    {
-        return Err(JacobianError::NonFinite);
-    }
-    let free_singular_values = if free_matrix.nrows() == 0 || free_matrix.ncols() == 0 {
-        Vec::new()
-    } else {
-        free_matrix
-            .clone()
-            .svd(false, false)
-            .singular_values
-            .as_slice()
-            .to_vec()
-    };
-    let largest_free_singular_value = free_singular_values.iter().copied().fold(0.0, f64::max);
-    let tolerance = 1.0e-12
-        * free_matrix.nrows().max(free_matrix.ncols()).max(1) as f64
-        * largest_free_singular_value;
-    let rank = if free_matrix.nrows() == 0 || free_matrix.ncols() == 0 {
-        0
-    } else {
-        free_matrix.clone().svd(false, false).rank(tolerance)
-    };
-    let mut selected_columns = Vec::new();
-    for (free_column, column) in free_indices.iter().enumerate() {
-        let mut selected = selected_columns
-            .iter()
-            .map(|index| matrix.column(*index).into_owned())
-            .collect::<Vec<_>>();
-        selected.push(free_matrix.column(free_column).into_owned());
-        if DMatrix::from_columns(&selected)
-            .svd(false, false)
-            .rank(tolerance)
-            > selected_columns.len()
-        {
-            selected_columns.push(*column);
-        }
-    }
-    let poses = tree_poses_for_configuration_at(problem, configuration, time)
-        .expect("solver configuration matches problem layout");
-    let residuals = closure_residuals_at(problem, &poses, time);
-    if selected_columns.len() != rank
-        || (rank == 0
-            && residuals
-                .iter()
-                .any(|value| !value.is_finite() || value.abs() > tolerance))
-    {
-        return Err(JacobianError::InsufficientCandidateRank {
-            rank,
-            selected: selected_columns.len(),
-        });
-    }
-    Ok(ClosureJacobian {
-        matrix,
-        columns,
-        selected_columns,
-        rank,
-        tolerance,
-    })
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -516,22 +205,12 @@ pub enum SolverError {
         residual_norm: f64,
     },
 }
-#[derive(Debug, Error)]
-pub enum JacobianError {
-    #[error(transparent)]
-    Residual(#[from] ResidualError),
-    #[error("closure Jacobian contains non-finite values")]
-    NonFinite,
-    #[error("closure Jacobian rank {rank} exceeds selected candidate rank {selected}")]
-    InsufficientCandidateRank { rank: usize, selected: usize },
-}
 
 #[cfg(test)]
 mod tests {
     use crate::io::yaml::parse_yaml_str;
 
     use super::*;
-
     #[test]
     fn sequence_solver_commits_candidates_only_after_success() {
         let input = parse_yaml_str(include_str!(
@@ -560,23 +239,5 @@ mod tests {
         assert!(interrupted.is_err());
         assert_eq!(residual_events, 2);
         assert_eq!(solver.candidates, candidates);
-    }
-
-    #[test]
-    fn reports_deterministic_closure_jacobian_rank_and_selection() {
-        let input = parse_yaml_str(include_str!(
-            "../../tests/fixtures/spherical_one_body_closed_loop.yaml"
-        ))
-        .unwrap()
-        .into_model()
-        .unwrap();
-        let problem = input;
-        let analysis = analyze_closure_jacobian(&problem, &BTreeMap::new()).unwrap();
-
-        assert_eq!(analysis.residual_dimension(), 3);
-        assert_eq!(analysis.rank(), 2);
-        assert_eq!(analysis.selected_columns(), &[0, 1]);
-        assert!(analysis.tolerance() > 0.0);
-        assert_eq!(analysis.selected_coordinates().len(), 2);
     }
 }

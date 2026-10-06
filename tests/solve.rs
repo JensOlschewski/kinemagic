@@ -229,7 +229,7 @@ fn solves_closed_loop_with_prescribed_orientation_constraint() {
     let poses = solve(&problem).unwrap();
 
     assert!(
-        kinemagic::solve::closure_orientation_residuals(&problem, &poses)
+        kinemagic::solve::closure_orientation_residuals_at(&problem, &poses, 0.0)
             .iter()
             .all(|residual| residual.abs() < 1.0e-8)
     );
@@ -245,7 +245,7 @@ fn solves_closed_loop_with_equivalent_large_angle_constraint() {
     let poses = solve(&problem).unwrap();
 
     assert!(
-        kinemagic::solve::closure_orientation_residuals(&problem, &poses)
+        kinemagic::solve::closure_orientation_residuals_at(&problem, &poses, 0.0)
             .iter()
             .all(|residual| residual.abs() < 1.0e-8)
     );
