@@ -1,7 +1,8 @@
+use kinemagic::data::coordinates::GeneralizedCoordinates;
 use kinemagic::io::yaml::{YamlError, parse_yaml_str};
 use kinemagic::model::mechanism::{BodyId, JointId};
 use kinemagic::model::{ModelError, coordinates::JointCoordinateError};
-use kinemagic::solve::{tree_body_jacobians_for_candidates, tree_poses_for_candidates};
+use kinemagic::solve::{tree_body_jacobians_for_configuration_at, tree_poses_for_configuration_at};
 use nalgebra::{UnitQuaternion, Vector3};
 
 #[test]
@@ -134,7 +135,9 @@ joints:
     );
 
     let candidates = std::collections::BTreeMap::from([(edge.joint_id(), displacement)]);
-    let poses = tree_poses_for_candidates(&problem, &candidates);
+    let configuration =
+        GeneralizedCoordinates::from_candidates(problem.coordinate_layout(), &candidates);
+    let poses = tree_poses_for_configuration_at(&problem, &configuration, 0.0).unwrap();
     assert!(
         poses
             .get(BodyId::new(1))
@@ -144,21 +147,32 @@ joints:
             < 1.0e-12
     );
 
-    let (columns, jacobians) = tree_body_jacobians_for_candidates(&problem, &candidates);
+    let (columns, jacobians) =
+        tree_body_jacobians_for_configuration_at(&problem, &configuration, 0.0).unwrap();
     let step = 1.0e-7;
     for (column, (_, component)) in columns.iter().enumerate() {
         let mut forward = candidates.clone();
         let mut backward = candidates.clone();
         forward.get_mut(&edge.joint_id()).unwrap()[*component] += step;
         backward.get_mut(&edge.joint_id()).unwrap()[*component] -= step;
-        let forward_orientation = tree_poses_for_candidates(&problem, &forward)
-            .get(BodyId::new(1))
-            .unwrap()
-            .orientation();
-        let backward_orientation = tree_poses_for_candidates(&problem, &backward)
-            .get(BodyId::new(1))
-            .unwrap()
-            .orientation();
+        let forward_orientation = tree_poses_for_configuration_at(
+            &problem,
+            &GeneralizedCoordinates::from_candidates(problem.coordinate_layout(), &forward),
+            0.0,
+        )
+        .unwrap()
+        .get(BodyId::new(1))
+        .unwrap()
+        .orientation();
+        let backward_orientation = tree_poses_for_configuration_at(
+            &problem,
+            &GeneralizedCoordinates::from_candidates(problem.coordinate_layout(), &backward),
+            0.0,
+        )
+        .unwrap()
+        .get(BodyId::new(1))
+        .unwrap()
+        .orientation();
         let finite_difference =
             (forward_orientation * backward_orientation.inverse()).scaled_axis() / (2.0 * step);
         let angular_column = jacobians[&BodyId::new(1)]
