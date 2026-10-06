@@ -113,6 +113,8 @@ impl Joint {
 pub enum JointKind {
     /// Allows unrestricted relative rotation between connected bodies.
     Spherical,
+    /// Allows relative rotation about a single axis between connected bodies.
+    Revolute,
 }
 
 /// Hint controlling joint selection during topology construction.

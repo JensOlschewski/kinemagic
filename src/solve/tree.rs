@@ -59,7 +59,7 @@ pub fn evaluate_tree_poses_at(
             TraversalDirection::JToI => orientation.inverse(),
         };
         let child = match joint.kind() {
-            JointKind::Spherical => spherical::spherical_child_pose(
+            JointKind::Spherical | JointKind::Revolute => spherical::spherical_child_pose(
                 parent,
                 parent_marker,
                 child_marker,

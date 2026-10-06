@@ -483,12 +483,14 @@ impl YamlMarker {
 #[serde(rename_all = "lowercase")]
 pub enum YamlJointKind {
     Spherical,
+    Revolute,
 }
 
 impl YamlJointKind {
     pub fn into_joint_kind(self) -> JointKind {
         match self {
             YamlJointKind::Spherical => JointKind::Spherical,
+            YamlJointKind::Revolute => JointKind::Revolute,
         }
     }
 }
@@ -636,6 +638,8 @@ mod tests {
         include_str!("../../tests/fixtures/spherical_one_body_parse.yaml");
     const VALID_TWO_BODY_PARSE_INPUT: &str =
         include_str!("../../tests/fixtures/spherical_two_body_parse.yaml");
+    const VALID_REVOLUTE_ONE_BODY_PARSE_INPUT: &str =
+        include_str!("../../tests/fixtures/revolute_one_body_parse.yaml");
 
     #[test]
     fn converts_spherical_one_body_parse_into_model() -> Result<(), YamlError> {
@@ -701,6 +705,30 @@ mod tests {
         assert_eq!(joint_2.j_marker().position(), Vector3::new(0.0, 0.0, 100.0));
 
         Ok(())
+    }
+
+    #[test]
+    fn converts_revolute_one_body_parse_into_model() -> Result<(), YamlError> {
+        let input = convert(VALID_REVOLUTE_ONE_BODY_PARSE_INPUT)?;
+        let model = input.mechanism();
+
+        let joint = model.joints().iter().next().unwrap();
+        assert_eq!(joint.id(), JointId::new(1));
+        assert_eq!(joint.kind(), JointKind::Revolute);
+        assert_eq!(joint.i_marker().body_id(), BodyId::GROUND);
+        assert_eq!(joint.j_marker().body_id(), BodyId::new(1));
+
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_revolute_joint_connecting_same_body() {
+        let yaml = VALID_REVOLUTE_ONE_BODY_PARSE_INPUT.replace("body_id: 0", "body_id: 1");
+
+        assert!(matches!(
+            convert(&yaml),
+            Err(YamlError::Model(ModelBuildError::SelfConnectingJoint { .. }))
+        ));
     }
 
     #[test]
@@ -870,9 +898,9 @@ mod tests {
         let motion = include_str!("../../tests/fixtures/spherical_two_body_motion.yaml");
         let cases = [
             (
-                valid.replace("kind: spherical", "kind: revolute"),
+                valid.replace("kind: spherical", "kind: unsupported"),
                 "J1",
-                "revolute",
+                "unsupported",
             ),
             (
                 motion.replacen("kind: joint-coordinates", "kind: unsupported", 1),

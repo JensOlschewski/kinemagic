@@ -88,7 +88,7 @@ fn closure_jacobian_from_body_jacobians(
             },
         )?;
         let (i_block, j_block) = match joint.kind() {
-            JointKind::Spherical => spherical::position_constraint_blocks(
+            JointKind::Spherical | JointKind::Revolute => spherical::position_constraint_blocks(
                 i_pose,
                 joint.i_marker(),
                 j_pose,
