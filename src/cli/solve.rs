@@ -1,23 +1,20 @@
 use std::io::{self, Write};
 use std::sync::atomic::Ordering;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use kinemagic::io::{load_file, text::render_frames};
-use kinemagic::problem::prepare;
 use kinemagic::solve::{SequenceSolver, SolverProgress};
 use kinemagic::view::{LiveViewEvent, Scene, ViewFrame, run_live_viewer, run_viewer};
 
 use crate::cli::{SolveArgs, SolveViewMode};
 
 pub fn run(args: SolveArgs) -> Result<()> {
-    let input = load_file(&args.input)?;
-
-    let problem =
-        prepare(input).with_context(|| format!("failed to prepare `{}`", args.input.display()))?;
+    let problem = load_file(&args.input)?;
 
     let times = problem.solver().times().collect::<Vec<_>>();
+
     if args.view == Some(SolveViewMode::Live) {
-        let reference = ViewFrame::reference(Scene::from_reference(problem.model()));
+        let reference = ViewFrame::reference(Scene::from_reference(problem.mechanism()));
         let total_frames = times.len();
         return run_live_viewer(reference, total_frames, move |updates, cancelled| {
             let mut solver = SequenceSolver::new(&problem);
@@ -55,7 +52,7 @@ pub fn run(args: SolveArgs) -> Result<()> {
                     })?;
                 let frame = ViewFrame::solved(
                     time,
-                    Scene::from_body_poses(problem.model(), &poses)
+                    Scene::from_body_poses(problem.mechanism(), &poses)
                         .map_err(|error| format!("failed to build solved scene: {error}"))?,
                 );
                 if updates.send(LiveViewEvent::FrameSolved(frame)).is_err() {
@@ -93,7 +90,7 @@ pub fn run(args: SolveArgs) -> Result<()> {
         let view_frames = frames
             .iter()
             .map(|(time, poses)| {
-                let scene = Scene::from_body_poses(problem.model(), poses)?;
+                let scene = Scene::from_body_poses(problem.mechanism(), poses)?;
                 Ok(ViewFrame::solved(*time, scene))
             })
             .collect::<Result<Vec<_>>>()?;

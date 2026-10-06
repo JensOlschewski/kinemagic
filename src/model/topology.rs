@@ -2,7 +2,11 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use thiserror::Error;
 
-use crate::model::{BodyId, JointId, JointRole, Model};
+use super::mechanism::{
+    Mechanism,
+    body::BodyId,
+    joint::{JointId, JointRole},
+};
 
 /// Topological representation of the mechanism.
 ///
@@ -15,21 +19,48 @@ use crate::model::{BodyId, JointId, JointRole, Model};
 /// For a closed-loop mechanism, one or more joints are represented as
 /// closure joints.
 #[derive(Debug, Eq, PartialEq)]
-pub struct KinematicTopology {
-    tree_edges: Vec<TreeEdge>,
+pub struct Topology {
+    tree: Tree,
     closure_joint_ids: Vec<JointId>,
 }
 
-impl KinematicTopology {
+impl Topology {
+    /// Builds a rooted spanning tree and identifies closure joints.
+    ///
+    /// Tree edges are ordered parent before child.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if required tree joints form a cycle or the
+    /// selected tree does not connect every body to ground.
+    pub fn build(model: &Mechanism) -> Result<Topology, TopologyError> {
+        let partition = partition_tree_and_closure_joints(model)?;
+        let tree_edges = orient_tree_edges(model, &partition.tree_joint_ids)?;
+
+        Ok(Topology {
+            tree: Tree { tree_edges },
+            closure_joint_ids: partition.closure_joint_ids,
+        })
+    }
+
+    pub fn tree(&self) -> &Tree {
+        &self.tree
+    }
+
     /// Returns the spanning-tree edges in parent-before-child order.
     pub fn tree_edges(&self) -> &[TreeEdge] {
-        &self.tree_edges
+        &self.tree.tree_edges
     }
 
     /// Returns joints that close loops in the mechanism.
     pub fn closure_joint_ids(&self) -> &[JointId] {
         &self.closure_joint_ids
     }
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct Tree {
+    tree_edges: Vec<TreeEdge>,
 }
 
 /// An oriented edge of the spanning tree.
@@ -72,7 +103,7 @@ pub enum TraversalDirection {
 /// Result of partitioning the mechanism joints into a spanning tree
 /// and loop-closing edges.
 #[derive(Debug)]
-pub struct JointPartition {
+struct JointPartition {
     tree_joint_ids: Vec<JointId>,
     closure_joint_ids: Vec<JointId>,
 }
@@ -119,9 +150,7 @@ impl UnionFind {
     }
 }
 
-fn partition_tree_and_closure_joints(
-    model: &Model,
-) -> Result<JointPartition, KinematicTopologyError> {
+fn partition_tree_and_closure_joints(model: &Mechanism) -> Result<JointPartition, TopologyError> {
     let mut body_ids = model
         .bodies()
         .iter()
@@ -159,7 +188,7 @@ fn partition_tree_and_closure_joints(
                 let j_index = body_indices[&j_body_id];
 
                 if !connectivity.union(i_index, j_index) {
-                    return Err(KinematicTopologyError::TreeJointCycle {
+                    return Err(TopologyError::TreeJointCycle {
                         joint_id: joint.id(),
                     });
                 }
@@ -198,9 +227,9 @@ struct AdjacencyEdge {
 }
 
 fn orient_tree_edges(
-    model: &Model,
+    model: &Mechanism,
     tree_joint_ids: &[JointId],
-) -> Result<Vec<TreeEdge>, KinematicTopologyError> {
+) -> Result<Vec<TreeEdge>, TopologyError> {
     let tree_joint_ids = tree_joint_ids.iter().copied().collect::<BTreeSet<_>>();
 
     let mut adjacency = BTreeMap::<BodyId, Vec<AdjacencyEdge>>::new();
@@ -260,27 +289,15 @@ fn orient_tree_edges(
         .iter()
         .find(|body| !visited.contains(&body.id()))
     {
-        return Err(KinematicTopologyError::UnreachableTreeBody { body_id: body.id() });
+        return Err(TopologyError::UnreachableTreeBody { body_id: body.id() });
     }
 
     Ok(tree_edges)
 }
 
-pub fn build_kinematic_topology(
-    model: &Model,
-) -> Result<KinematicTopology, KinematicTopologyError> {
-    let partition = partition_tree_and_closure_joints(model)?;
-    let tree_edges = orient_tree_edges(model, &partition.tree_joint_ids)?;
-
-    Ok(KinematicTopology {
-        tree_edges,
-        closure_joint_ids: partition.closure_joint_ids,
-    })
-}
-
 #[derive(Debug, Error)]
 #[non_exhaustive]
-pub enum KinematicTopologyError {
+pub enum TopologyError {
     #[error("tree joint `{joint_id:?}` would create a cycle")]
     TreeJointCycle { joint_id: JointId },
     #[error("body `{body_id:?}` is not reachable from ground through tree joints")]
@@ -289,16 +306,16 @@ pub enum KinematicTopologyError {
 
 #[cfg(test)]
 mod tests {
-    use nalgebra::{UnitQuaternion, Vector3};
-
     use super::*;
-    use crate::model::*;
+    use crate::model::mechanism::body::{Bodies, Body};
+    use crate::model::mechanism::joint::{Joint, JointKind, Joints};
+    use crate::model::mechanism::*;
+    use nalgebra::{UnitQuaternion, Vector3};
 
     #[test]
     fn builds_ground_only_topology() {
-        let model = model(&[], vec![]);
-
-        let topology = build_kinematic_topology(&model).unwrap();
+        let mechanism = mechanism(&[], vec![]);
+        let topology = Topology::build(&mechanism).unwrap();
 
         assert!(topology.tree_edges().is_empty());
         assert!(topology.closure_joint_ids().is_empty());
@@ -306,9 +323,8 @@ mod tests {
 
     #[test]
     fn builds_single_tree_edge() {
-        let model = model(&[1], vec![joint(1, 0, 1)]);
-
-        let topology = build_kinematic_topology(&model).unwrap();
+        let mechanism = mechanism(&[1], vec![joint(1, 0, 1)]);
+        let topology = Topology::build(&mechanism).unwrap();
 
         assert_eq!(
             topology.tree_edges(),
@@ -322,9 +338,8 @@ mod tests {
     fn orients_tree_edge_from_ground() {
         // Joint orientation is body 1 (I) -> ground (J),
         // but tree traversal must still start at ground.
-        let model = model(&[1], vec![joint(1, 1, 0)]);
-
-        let topology = build_kinematic_topology(&model).unwrap();
+        let mechanism = mechanism(&[1], vec![joint(1, 1, 0)]);
+        let topology = Topology::build(&mechanism).unwrap();
 
         assert_eq!(
             topology.tree_edges(),
@@ -334,9 +349,8 @@ mod tests {
 
     #[test]
     fn builds_open_chain_in_tree_order() {
-        let model = model(&[1, 2], vec![joint(2, 1, 2), joint(1, 0, 1)]);
-
-        let topology = build_kinematic_topology(&model).unwrap();
+        let mechanism = mechanism(&[1, 2], vec![joint(2, 1, 2), joint(1, 0, 1)]);
+        let topology = Topology::build(&mechanism).unwrap();
 
         assert_eq!(
             topology.tree_edges(),
@@ -349,12 +363,11 @@ mod tests {
 
     #[test]
     fn builds_branch_in_breadth_first_order() {
-        let model = model(
+        let mechanism = mechanism(
             &[1, 2, 3],
             vec![joint(3, 1, 3), joint(2, 0, 2), joint(1, 0, 1)],
         );
-
-        let topology = build_kinematic_topology(&model).unwrap();
+        let topology = Topology::build(&mechanism).unwrap();
 
         assert_eq!(
             topology.tree_edges(),
@@ -372,9 +385,8 @@ mod tests {
         //
         // J1 becomes part of the spanning tree.
         // J2 would create a loop and therefore becomes a closure joint.
-        let model = model(&[1], vec![joint(2, 1, 0), joint(1, 0, 1)]);
-
-        let topology = build_kinematic_topology(&model).unwrap();
+        let mechanism = mechanism(&[1], vec![joint(2, 1, 0), joint(1, 0, 1)]);
+        let topology = Topology::build(&mechanism).unwrap();
 
         assert_eq!(
             topology.tree_edges(),
@@ -384,26 +396,16 @@ mod tests {
         assert_eq!(topology.closure_joint_ids(), &[JointId::new(2)]);
     }
 
-    fn model(body_ids: &[u32], joints: Vec<Joint>) -> Model {
-        let bodies = std::iter::once(BodyId::GROUND)
-            .chain(body_ids.iter().copied().map(BodyId::new))
-            .map(body)
-            .collect();
-
-        Model::new(Bodies::new(bodies).unwrap(), Joints::new(joints).unwrap()).unwrap()
-    }
-
     #[test]
     fn primary_joint_is_preferred_over_auto_joint() {
-        let model = model(
+        let mechanism = mechanism(
             &[1],
             vec![
                 joint_with_role(1, 0, 1, JointRole::Auto),
                 joint_with_role(2, 0, 1, JointRole::Primary),
             ],
         );
-
-        let topology = build_kinematic_topology(&model).unwrap();
+        let topology = Topology::build(&mechanism).unwrap();
 
         assert_eq!(
             topology.tree_edges(),
@@ -415,7 +417,7 @@ mod tests {
 
     #[test]
     fn rejects_cycle_of_primary_joints() {
-        let model = model(
+        let mechanism = mechanism(
             &[1, 2],
             vec![
                 joint_with_role(1, 0, 1, JointRole::Primary),
@@ -423,37 +425,25 @@ mod tests {
                 joint_with_role(3, 2, 0, JointRole::Primary),
             ],
         );
-
-        let error = build_kinematic_topology(&model).unwrap_err();
+        let error = Topology::build(&mechanism).unwrap_err();
 
         assert!(matches!(
             error,
-            KinematicTopologyError::TreeJointCycle { joint_id }
+            TopologyError::TreeJointCycle { joint_id }
                 if joint_id == JointId::new(3)
         ));
     }
 
-    fn body(id: BodyId) -> Body {
-        Body::new(
-            id,
-            format!("body {id:?}"),
-            Vector3::zeros(),
-            UnitQuaternion::identity(),
-            vec![],
-        )
-    }
-
     #[test]
     fn secondary_joint_becomes_closure_joint() {
-        let model = model(
+        let mechanism = mechanism(
             &[1],
             vec![
                 joint_with_role(1, 0, 1, JointRole::Primary),
                 joint_with_role(2, 0, 1, JointRole::Secondary),
             ],
         );
-
-        let topology = build_kinematic_topology(&model).unwrap();
+        let topology = Topology::build(&mechanism).unwrap();
 
         assert_eq!(
             topology.tree_edges(),
@@ -465,15 +455,33 @@ mod tests {
 
     #[test]
     fn rejects_tree_disconnected_by_secondary_joint() {
-        let model = model(&[1], vec![joint_with_role(1, 0, 1, JointRole::Secondary)]);
-
-        let error = build_kinematic_topology(&model).unwrap_err();
+        let mechanism = mechanism(&[1], vec![joint_with_role(1, 0, 1, JointRole::Secondary)]);
+        let error = Topology::build(&mechanism).unwrap_err();
 
         assert!(matches!(
             error,
-            KinematicTopologyError::UnreachableTreeBody { body_id }
+            TopologyError::UnreachableTreeBody { body_id }
                 if body_id == BodyId::new(1)
         ));
+    }
+
+    fn mechanism(body_ids: &[u32], joints: Vec<Joint>) -> Mechanism {
+        let bodies = std::iter::once(BodyId::GROUND)
+            .chain(body_ids.iter().copied().map(BodyId::new))
+            .map(body)
+            .collect();
+
+        Mechanism::new(Bodies::new(bodies).unwrap(), Joints::new(joints).unwrap()).unwrap()
+    }
+
+    fn body(id: BodyId) -> Body {
+        Body::new(
+            id,
+            format!("body {id:?}"),
+            Vector3::zeros(),
+            UnitQuaternion::identity(),
+            vec![],
+        )
     }
 
     fn joint(id: u32, i_body_id: u32, j_body_id: u32) -> Joint {

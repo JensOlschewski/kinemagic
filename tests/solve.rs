@@ -1,6 +1,6 @@
 use kinemagic::io::yaml::parse_yaml_str;
-use kinemagic::model::{BodyId, JointId};
-use kinemagic::problem::{PreparedProblem, TraversalDirection, prepare};
+use kinemagic::model::mechanism::{BodyId, JointId};
+use kinemagic::model::{Model, topology::TraversalDirection};
 use kinemagic::solve::{
     BodyPose, BodyPoses, SequenceSolver, SolverProgress, solve, solve_at, solve_at_with_progress,
 };
@@ -30,7 +30,7 @@ fn reproduces_one_body_reference_with_non_aligned_markers() {
         .replacen("euler_angles: [0, 0, 0]", "euler_angles: [10, 20, 30]", 1)
         .replacen("euler_angles: [0, 0, 0]", "euler_angles: [-20, 15, 35]", 1);
     let problem = prepared(&yaml);
-    let joint = problem.model().joints().get(JointId::new(1)).unwrap();
+    let joint = problem.mechanism().joints().get(JointId::new(1)).unwrap();
 
     assert!(
         joint
@@ -73,7 +73,7 @@ fn solves_reordered_chain_with_simultaneous_motions() {
     let problem = prepared(&yaml);
 
     assert_eq!(
-        problem.model().joints().iter().next().unwrap().id(),
+        problem.mechanism().joints().iter().next().unwrap().id(),
         JointId::new(2)
     );
 
@@ -84,8 +84,14 @@ fn solves_reordered_chain_with_simultaneous_motions() {
     assert_complete(&problem, &poses);
     assert_joint_constraints(&problem, &poses);
 
-    let first_orientation = problem.tree_edges()[0].relative_orientation();
-    let second_orientation = problem.tree_edges()[1].relative_orientation();
+    let first_orientation = problem
+        .joint_coordinate(JointId::new(1))
+        .unwrap()
+        .relative_orientation();
+    let second_orientation = problem
+        .joint_coordinate(JointId::new(2))
+        .unwrap()
+        .relative_orientation();
 
     assert_orientation_close(
         poses.get(BodyId::new(1)).unwrap().orientation(),
@@ -127,7 +133,7 @@ fn solving_is_repeatable_without_mutating_problem() {
     assert_complete(&problem, &first);
     assert_complete(&problem, &second);
 
-    for body in problem.model().bodies().iter() {
+    for body in problem.mechanism().bodies().iter() {
         let a = first.get(body.id()).unwrap();
         let b = second.get(body.id()).unwrap();
 
@@ -223,7 +229,7 @@ fn solves_closed_loop_with_prescribed_orientation_constraint() {
     let poses = solve(&problem).unwrap();
 
     assert!(
-        kinemagic::solve::closure_orientation_residuals(&problem, &poses)
+        kinemagic::solve::closure_orientation_residuals_at(&problem, &poses, 0.0)
             .iter()
             .all(|residual| residual.abs() < 1.0e-8)
     );
@@ -239,7 +245,7 @@ fn solves_closed_loop_with_equivalent_large_angle_constraint() {
     let poses = solve(&problem).unwrap();
 
     assert!(
-        kinemagic::solve::closure_orientation_residuals(&problem, &poses)
+        kinemagic::solve::closure_orientation_residuals_at(&problem, &poses, 0.0)
             .iter()
             .all(|residual| residual.abs() < 1.0e-8)
     );
@@ -261,14 +267,14 @@ fn rejects_over_prescribed_closed_loop_problem() {
     ));
 }
 
-fn prepared(yaml: &str) -> PreparedProblem {
-    prepare(parse_yaml_str(yaml).unwrap().into_input().unwrap()).unwrap()
+fn prepared(yaml: &str) -> Model {
+    parse_yaml_str(yaml).unwrap().into_model().unwrap()
 }
 
-fn assert_reproduces_reference(problem: &PreparedProblem, poses: &BodyPoses) {
+fn assert_reproduces_reference(problem: &Model, poses: &BodyPoses) {
     assert_complete(problem, poses);
 
-    for body in problem.model().bodies().iter() {
+    for body in problem.mechanism().bodies().iter() {
         assert_pose_close(
             poses.get(body.id()).unwrap(),
             body.position(),
@@ -277,38 +283,34 @@ fn assert_reproduces_reference(problem: &PreparedProblem, poses: &BodyPoses) {
     }
 }
 
-fn assert_complete(problem: &PreparedProblem, poses: &BodyPoses) {
+fn assert_complete(problem: &Model, poses: &BodyPoses) {
     assert_eq!(
         poses.iter().count(),
-        problem.model().bodies().iter().count()
+        problem.mechanism().bodies().iter().count()
     );
     assert!(
         problem
-            .model()
+            .mechanism()
             .bodies()
             .iter()
             .all(|body| poses.get(body.id()).is_some())
     );
 }
 
-fn assert_joint_constraints(problem: &PreparedProblem, poses: &BodyPoses) {
+fn assert_joint_constraints(problem: &Model, poses: &BodyPoses) {
     for edge in problem.tree_edges() {
-        let joint = problem.model().joints().get(edge.joint_id()).unwrap();
+        let joint = problem.mechanism().joints().get(edge.joint_id()).unwrap();
+        let orientation = problem
+            .joint_coordinate(edge.joint_id())
+            .unwrap()
+            .relative_orientation();
         let parent = poses.get(edge.parent_body_id()).unwrap();
         let child = poses.get(edge.child_body_id()).unwrap();
 
         let (parent_marker, child_marker, relative_orientation) = match edge.direction() {
-            TraversalDirection::IToJ => (
-                joint.i_marker(),
-                joint.j_marker(),
-                edge.relative_orientation(),
-            ),
+            TraversalDirection::IToJ => (joint.i_marker(), joint.j_marker(), orientation),
 
-            TraversalDirection::JToI => (
-                joint.j_marker(),
-                joint.i_marker(),
-                edge.relative_orientation().inverse(),
-            ),
+            TraversalDirection::JToI => (joint.j_marker(), joint.i_marker(), orientation.inverse()),
         };
 
         assert_position_close(

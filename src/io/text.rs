@@ -1,4 +1,4 @@
-use crate::model::BodyId;
+use crate::model::mechanism::BodyId;
 use crate::solve::{BodyPose, BodyPoses};
 
 const ZERO_THRESHOLD: f64 = 0.5e-12;
@@ -76,7 +76,6 @@ mod tests {
 
     use super::*;
     use crate::io::yaml::parse_yaml_str;
-    use crate::problem::prepare;
     use crate::solve::solve;
 
     #[test]
@@ -84,14 +83,14 @@ mod tests {
         let yaml = include_str!("../../tests/fixtures/spherical_two_body_parse.yaml")
             .replace("  B1:", "  ZBody:")
             .replace("  B2:", "  ABody:");
-        let input = parse_yaml_str(&yaml).unwrap().into_input().unwrap();
+        let input = parse_yaml_str(&yaml).unwrap().into_model().unwrap();
 
         assert_eq!(
-            input.model().bodies().iter().nth(1).unwrap().id(),
+            input.mechanism().bodies().iter().nth(1).unwrap().id(),
             BodyId::new(2)
         );
 
-        let problem = prepare(input).unwrap();
+        let problem = input;
         let output = render_body_poses(&solve(&problem).unwrap());
 
         assert_eq!(

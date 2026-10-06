@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use nalgebra::{UnitQuaternion, Vector2, Vector3};
 use thiserror::Error;
 
-use crate::model::{BodyId, JointId, Model};
+use crate::model::mechanism::{BodyId, JointId, Mechanism};
 use crate::solve::BodyPoses;
 
 mod terminal;
@@ -44,7 +44,7 @@ pub struct Scene {
 }
 
 impl Scene {
-    pub fn from_reference(model: &Model) -> Self {
+    pub fn from_reference(model: &Mechanism) -> Self {
         let world_poses = model
             .bodies()
             .iter()
@@ -59,7 +59,10 @@ impl Scene {
         Self::from_world_poses(model, &world_poses)
     }
 
-    pub fn from_body_poses(model: &Model, body_poses: &BodyPoses) -> Result<Self, SceneBuildError> {
+    pub fn from_body_poses(
+        model: &Mechanism,
+        body_poses: &BodyPoses,
+    ) -> Result<Self, SceneBuildError> {
         let world_poses = model
             .bodies()
             .iter()
@@ -93,7 +96,7 @@ impl Scene {
             .expect("a scene always contains ground")
     }
 
-    fn from_world_poses(model: &Model, world_poses: &BTreeMap<BodyId, WorldPose>) -> Self {
+    fn from_world_poses(model: &Mechanism, world_poses: &BTreeMap<BodyId, WorldPose>) -> Self {
         let bodies = model
             .bodies()
             .iter()
@@ -478,8 +481,7 @@ impl BoundsBuilder {
 mod tests {
     use super::*;
     use crate::io::yaml::parse_yaml_str;
-    use crate::model::{Bodies, Body, Joints, Point};
-    use crate::problem::prepare;
+    use crate::model::mechanism::{Bodies, Body, Joints, Point};
     use crate::solve::solve_at;
 
     const ONE_BODY: &str = include_str!("../../tests/fixtures/spherical_one_body_parse.yaml");
@@ -510,8 +512,8 @@ mod tests {
 
     #[test]
     fn builds_reference_geometry_from_body_points_and_joint_markers() {
-        let input = parse_yaml_str(TWO_BODY).unwrap().into_input().unwrap();
-        let scene = Scene::from_reference(input.model());
+        let input = parse_yaml_str(TWO_BODY).unwrap().into_model().unwrap();
+        let scene = Scene::from_reference(input.mechanism());
 
         assert_eq!(scene.bodies().len(), 2);
         assert_eq!(scene.joints().len(), 2);
@@ -559,7 +561,7 @@ mod tests {
             UnitQuaternion::identity(),
             vec![Point::new("anchor", Vector3::new(4.0, 0.0, 0.0))],
         );
-        let model = crate::model::Model::new(
+        let model = crate::model::mechanism::Mechanism::new(
             Bodies::new(vec![ground]).unwrap(),
             Joints::new(vec![]).unwrap(),
         )
@@ -581,10 +583,10 @@ mod tests {
 
     #[test]
     fn builds_solved_geometry_from_body_poses() {
-        let input = parse_yaml_str(ONE_BODY).unwrap().into_input().unwrap();
-        let problem = prepare(input).unwrap();
+        let input = parse_yaml_str(ONE_BODY).unwrap().into_model().unwrap();
+        let problem = input;
         let poses = solve_at(&problem, 0.0).unwrap();
-        let scene = Scene::from_body_poses(problem.model(), &poses).unwrap();
+        let scene = Scene::from_body_poses(problem.mechanism(), &poses).unwrap();
         let body = &scene.bodies()[0];
         let pose = poses.get(body.body_id()).unwrap();
 
@@ -594,7 +596,7 @@ mod tests {
             pose.position()
                 + pose.orientation().transform_vector(
                     &problem
-                        .model()
+                        .mechanism()
                         .bodies()
                         .get(body.body_id())
                         .unwrap()
@@ -608,9 +610,9 @@ mod tests {
     fn gives_degenerate_scenes_usable_bounds() {
         let input = parse_yaml_str("hardpoints: {}\n")
             .unwrap()
-            .into_input()
+            .into_model()
             .unwrap();
-        let bounds = Scene::from_reference(input.model()).projected_bounds(Projection::Xz);
+        let bounds = Scene::from_reference(input.mechanism()).projected_bounds(Projection::Xz);
 
         assert_eq!(bounds.min(), Vector2::new(-0.5, -0.5));
         assert_eq!(bounds.max(), Vector2::new(0.5, 0.5));

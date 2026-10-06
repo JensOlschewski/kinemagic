@@ -3,18 +3,18 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 use crate::io::yaml::{YamlError, parse_yaml_file};
-use crate::model::Input;
+use crate::model::Model;
 
 pub mod text;
 pub mod yaml;
 
-pub fn load_file(path: &Path) -> Result<Input, LoadInputError> {
+pub fn load_file(path: &Path) -> Result<Model, LoadInputError> {
     let yaml = parse_yaml_file(path).map_err(|source| LoadInputError::Load {
         path: path.to_owned(),
         source,
     })?;
 
-    yaml.into_input().map_err(|source| LoadInputError::Load {
+    yaml.into_model().map_err(|source| LoadInputError::Load {
         path: path.to_owned(),
         source,
     })
