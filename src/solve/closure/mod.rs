@@ -5,8 +5,8 @@ use thiserror::Error;
 
 use crate::data::coordinates::{GeneralizedCoordinates, GeneralizedCoordinatesError};
 use crate::model::Model;
-use crate::model::mechanism::joint::spherical;
-use crate::model::mechanism::{BodyId, JointId, JointKind};
+use crate::model::mechanism::joint::geometry;
+use crate::model::mechanism::{BodyId, JointId};
 use crate::solve::state::{BodyPoses, BodyTwist};
 use crate::solve::tree::{tree_body_jacobians_for_columns_at, tree_poses_for_configuration_at};
 
@@ -89,14 +89,8 @@ fn closure_jacobian_from_body_jacobians(
                 body_id: joint.j_marker().body_id(),
             },
         )?;
-        let (i_block, j_block) = match joint.kind() {
-            JointKind::Spherical | JointKind::Revolute => spherical::position_constraint_blocks(
-                i_pose,
-                joint.i_marker(),
-                j_pose,
-                joint.j_marker(),
-            ),
-        };
+        let (i_block, j_block) =
+            geometry::position_jacobian_blocks(i_pose, joint.i_marker(), j_pose, joint.j_marker());
         let position_block = i_block * i_jacobian.rows(0, 6) + j_block * j_jacobian.rows(0, 6);
         jacobian
             .rows_mut(3 * closure_index, 3)

@@ -5,8 +5,8 @@ use nalgebra::{DMatrix, UnitQuaternion, Vector3};
 use crate::data::Data;
 use crate::data::coordinates::{GeneralizedCoordinates, GeneralizedCoordinatesError};
 use crate::model::Model;
-use crate::model::mechanism::joint::spherical;
-use crate::model::mechanism::{BodyId, JointId, JointKind};
+use crate::model::mechanism::joint::geometry;
+use crate::model::mechanism::{BodyId, JointId};
 use crate::model::topology::TraversalDirection;
 use crate::solve::state::{BodyPose, BodyPoses, BodyTwist, TreeBodyJacobians, TreeTwistColumns};
 
@@ -58,14 +58,7 @@ pub fn evaluate_tree_poses_at(
             TraversalDirection::IToJ => orientation,
             TraversalDirection::JToI => orientation.inverse(),
         };
-        let child = match joint.kind() {
-            JointKind::Spherical | JointKind::Revolute => spherical::spherical_child_pose(
-                parent,
-                parent_marker,
-                child_marker,
-                relative_orientation,
-            ),
-        };
+        let child = geometry::child_pose(parent, parent_marker, child_marker, relative_orientation);
         poses.insert(edge.child_body_id(), child);
     }
     data.set_body_poses(BodyPoses { poses });

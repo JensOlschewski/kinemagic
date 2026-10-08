@@ -14,7 +14,7 @@ use crate::data::coordinates::GeneralizedCoordinates;
 use crate::model::Model;
 use closure::newton::solve_closed_loop;
 
-pub use crate::model::mechanism::joint::spherical::spherical_child_pose;
+pub use crate::model::mechanism::joint::geometry::child_pose;
 pub use crate::solve::closure::analysis::{
     ClosureJacobian, JacobianError, analyze_closure_jacobian_at,
 };
