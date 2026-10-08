@@ -5,9 +5,10 @@ const VALID_MOTION: &str = "tests/fixtures/spherical_two_body_motion.yaml";
 const MALFORMED: &str = "tests/fixtures/malformed.yaml";
 const NOT_SOLVE_READY: &str = "tests/fixtures/spherical_duplicate_motion.yaml";
 const MISSING: &str = "tests/fixtures/missing.yaml";
-const DOCUMENTED_EXAMPLE: &str = "examples/spherical_one_body_motion.yaml";
+const DOCUMENTED_EXAMPLE: &str = "examples/revolute_one_body_motion.yaml";
 const CLOSED_LOOP_EXAMPLE: &str = "tests/fixtures/spherical_one_body_closed_loop.yaml";
 const TIME_MOTION: &str = "tests/fixtures/spherical_one_body_time_motion.yaml";
+const REVOLUTE_MOTION: &str = "tests/fixtures/revolute_one_body_motion.yaml";
 
 const EXPECTED_ONE_BODY: &str =
     include_str!("fixtures/spherical_one_body_parse_expected_output.txt");
@@ -15,6 +16,8 @@ const EXPECTED_TWO_BODY: &str =
     include_str!("fixtures/spherical_two_body_motion_expected_output.txt");
 const EXPECTED_CLOSED_LOOP: &str =
     include_str!("fixtures/spherical_one_body_closed_loop_expected_output.txt");
+const EXPECTED_REVOLUTE: &str =
+    include_str!("fixtures/revolute_one_body_motion_expected_output.txt");
 
 #[test]
 fn check_accepts_valid_no_motion_problem() {
@@ -62,6 +65,15 @@ fn solve_renders_two_body_motion_problem() {
     assert!(output.status.success());
     assert!(output.stderr.is_empty());
     assert_eq!(String::from_utf8(output.stdout).unwrap(), EXPECTED_TWO_BODY);
+}
+
+#[test]
+fn solve_renders_revolute_motion_problem() {
+    let output = run("solve", REVOLUTE_MOTION);
+
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), EXPECTED_REVOLUTE);
 }
 
 #[test]
