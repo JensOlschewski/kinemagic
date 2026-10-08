@@ -727,7 +727,9 @@ mod tests {
 
         assert!(matches!(
             convert(&yaml),
-            Err(YamlError::Model(ModelBuildError::SelfConnectingJoint { .. }))
+            Err(YamlError::Model(
+                ModelBuildError::SelfConnectingJoint { .. }
+            ))
         ));
     }
 

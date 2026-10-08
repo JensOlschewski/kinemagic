@@ -1,5 +1,5 @@
-pub mod spherical;
 pub mod revolute;
+pub mod spherical;
 
 use std::collections::HashSet;
 
