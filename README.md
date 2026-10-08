@@ -6,16 +6,16 @@ A simple CLI for modeling and solving multibody mechanisms.
 
 ```bash
 cargo install --path .
-km check examples/spherical_one_body_motion.yaml
-km solve examples/spherical_one_body_motion.yaml
-km solve examples/spherical_one_body_motion.yaml --view
+km check examples/revolute_one_body_motion.yaml
+km solve examples/revolute_one_body_motion.yaml
+km solve examples/revolute_one_body_motion.yaml --view
 ```
 
 ## Input
 
 Examples:
 
-- [2D one-body motion](examples/spherical_one_body_motion.yaml)
+- [2D one-body motion](examples/revolute_one_body_motion.yaml)
 - [2D three-body chain](examples/spherical_three_body_chain.yaml)
 - [3D spherical plate](examples/spherical_plate_3d_motion.yaml)
 

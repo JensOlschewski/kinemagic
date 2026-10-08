@@ -68,7 +68,9 @@ fn closure_jacobian_from_body_jacobians(
             .expect("Model contains missing closure joint");
         let coordinate = problem
             .joint_coordinate(*joint_id)
-            .expect("Model contains missing joint coordinate");
+            .expect("Model contains missing joint coordinate")
+            .as_spherical()
+            .expect("closure joints are validated to be spherical");
         let i_pose = poses
             .get(joint.i_marker().body_id())
             .expect("closure joint i body has no pose");
@@ -88,7 +90,7 @@ fn closure_jacobian_from_body_jacobians(
             },
         )?;
         let (i_block, j_block) = match joint.kind() {
-            JointKind::Spherical => spherical::position_constraint_blocks(
+            JointKind::Spherical | JointKind::Revolute => spherical::position_constraint_blocks(
                 i_pose,
                 joint.i_marker(),
                 j_pose,
@@ -174,7 +176,9 @@ pub fn closure_orientation_residuals_at(problem: &Model, poses: &BodyPoses, time
                 .expect("Model contains missing closure joint");
             let coordinate = problem
                 .joint_coordinate(*joint_id)
-                .expect("Model contains missing joint coordinate");
+                .expect("Model contains missing joint coordinate")
+                .as_spherical()
+                .expect("closure joints are validated to be spherical");
             let i_pose = poses
                 .get(joint.i_marker().body_id())
                 .expect("closure joint i body has no pose");
@@ -261,7 +265,9 @@ pub fn closure_orientation_residual_rates(
             .expect("Model contains missing closure joint");
         let coordinate = problem
             .joint_coordinate(*joint_id)
-            .expect("Model contains missing joint coordinate");
+            .expect("Model contains missing joint coordinate")
+            .as_spherical()
+            .expect("closure joints are validated to be spherical");
         let i_pose = poses
             .get(joint.i_marker().body_id())
             .expect("closure joint i body has no pose");

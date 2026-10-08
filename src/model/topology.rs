@@ -5,7 +5,7 @@ use thiserror::Error;
 use super::mechanism::{
     Mechanism,
     body::BodyId,
-    joint::{JointId, JointRole},
+    joint::{JointId, JointKind, JointRole},
 };
 
 /// Topological representation of the mechanism.
@@ -36,6 +36,22 @@ impl Topology {
     pub fn build(model: &Mechanism) -> Result<Topology, TopologyError> {
         let partition = partition_tree_and_closure_joints(model)?;
         let tree_edges = orient_tree_edges(model, &partition.tree_joint_ids)?;
+
+        for joint_id in &partition.closure_joint_ids {
+            let joint = model
+                .joints()
+                .get(*joint_id)
+                .expect("partition references a mechanism joint");
+
+            // Closure residuals are only implemented for spherical joints so
+            // far; revolute closed-loop support lands with issues #73–#74.
+            if joint.kind() != JointKind::Spherical {
+                return Err(TopologyError::UnsupportedClosureJointKind {
+                    joint_id: *joint_id,
+                    kind: joint.kind(),
+                });
+            }
+        }
 
         Ok(Topology {
             tree: Tree { tree_edges },
@@ -302,6 +318,8 @@ pub enum TopologyError {
     TreeJointCycle { joint_id: JointId },
     #[error("body `{body_id:?}` is not reachable from ground through tree joints")]
     UnreachableTreeBody { body_id: BodyId },
+    #[error("closure joint `{joint_id:?}` has kind `{kind:?}`, not yet supported in closed loops")]
+    UnsupportedClosureJointKind { joint_id: JointId, kind: JointKind },
 }
 
 #[cfg(test)]
@@ -465,6 +483,26 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn rejects_revolute_closure_joint() {
+        let mechanism = mechanism(
+            &[1],
+            vec![
+                joint_with_role(1, 0, 1, JointRole::Primary),
+                revolute_joint_with_role(2, 0, 1, JointRole::Secondary),
+            ],
+        );
+        let error = Topology::build(&mechanism).unwrap_err();
+
+        assert!(matches!(
+            error,
+            TopologyError::UnsupportedClosureJointKind {
+                joint_id,
+                kind: JointKind::Revolute,
+            } if joint_id == JointId::new(2)
+        ));
+    }
+
     fn mechanism(body_ids: &[u32], joints: Vec<Joint>) -> Mechanism {
         let bodies = std::iter::once(BodyId::GROUND)
             .chain(body_ids.iter().copied().map(BodyId::new))
@@ -493,6 +531,17 @@ mod tests {
             JointId::new(id),
             format!("joint {id}"),
             JointKind::Spherical,
+            role,
+            marker("i", BodyId::new(i_body_id)),
+            marker("j", BodyId::new(j_body_id)),
+        )
+    }
+
+    fn revolute_joint_with_role(id: u32, i_body_id: u32, j_body_id: u32, role: JointRole) -> Joint {
+        Joint::new(
+            JointId::new(id),
+            format!("joint {id}"),
+            JointKind::Revolute,
             role,
             marker("i", BodyId::new(i_body_id)),
             marker("j", BodyId::new(j_body_id)),

@@ -54,8 +54,8 @@ jobs:
 
       - run: cargo build --release --locked
       - run: ./target/release/${{ matrix.binary }} --help
-      - run: ./target/release/${{ matrix.binary }} check examples/spherical_one_body_motion.yaml
-      - run: ./target/release/${{ matrix.binary }} solve examples/spherical_one_body_motion.yaml
+      - run: ./target/release/${{ matrix.binary }} check examples/revolute_one_body_motion.yaml
+      - run: ./target/release/${{ matrix.binary }} solve examples/revolute_one_body_motion.yaml
 
       - if: runner.os != 'Windows'
         run: tar -czf kinemagic-${{ github.ref_name }}-${{ matrix.asset }}.${{ matrix.extension }} -C target/release ${{ matrix.binary }}

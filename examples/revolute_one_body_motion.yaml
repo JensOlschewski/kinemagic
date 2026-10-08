@@ -1,4 +1,4 @@
-# Kinemagic example: one body connected to ground by one spherical joint.
+# Kinemagic example: one body connected to ground by one revolute joint.
 #
 # Demonstrates:
 # - minimal ground-rooted mechanism
@@ -6,9 +6,9 @@
 # - solver time interval
 #
 # Run:
-#   km check examples/spherical_one_body_motion.yaml
-#   km solve examples/spherical_one_body_motion.yaml
-#   km solve examples/spherical_one_body_motion.yaml --view=live
+#   km check examples/revolute_one_body_motion.yaml
+#   km solve examples/revolute_one_body_motion.yaml
+#   km solve examples/revolute_one_body_motion.yaml --view=live
 
 # ------------------
 # --- HARDPOINTS ---
@@ -42,7 +42,7 @@ bodies:
 joints:
   J1:
     joint_id: 1
-    kind: spherical
+    kind: revolute
     i:
       body_id: 0
       position: P1
@@ -60,14 +60,15 @@ joints:
 # --- MOTIONS ---
 # ---------------
 
-# Rotation-vector components are expressed in degrees in the reference
-# i-marker frame. Expressions may depend on solver variable `time`.
+# A revolute joint has a single free hinge angle about the markers' Z axis.
+# Expressed in degrees in the reference i-marker frame. Expressions may
+# depend on solver variable `time`.
 motions:
   RotateJ1:
     kind: joint-coordinates
     joint_id: 1
     displacement:
-      rot_y: "45 * time"
+      rot_z: "45 * time"
 
 # --------------
 # --- SOLVER ---

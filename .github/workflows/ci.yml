@@ -38,5 +38,5 @@ jobs:
       - name: Smoke Test
         run: |
           ./target/debug/km --help
-          ./target/debug/km check examples/spherical_one_body_motion.yaml
-          ./target/debug/km solve examples/spherical_one_body_motion.yaml
+          ./target/debug/km check examples/revolute_one_body_motion.yaml
+          ./target/debug/km solve examples/revolute_one_body_motion.yaml
