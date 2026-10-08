@@ -69,7 +69,9 @@ impl JointCoordinate {
         candidate: Vector3<f64>,
     ) -> UnitQuaternion<f64> {
         match self {
-            JointCoordinate::Spherical(coordinate) => coordinate.relative_orientation_at(time, candidate),
+            JointCoordinate::Spherical(coordinate) => {
+                coordinate.relative_orientation_at(time, candidate)
+            }
             JointCoordinate::Revolute(coordinate) => {
                 coordinate.relative_orientation_at(time, candidate.x)
             }
@@ -78,7 +80,9 @@ impl JointCoordinate {
 
     pub fn resolve_displacement_at(&self, time: f64, candidate: Vector3<f64>) -> Vector3<f64> {
         match self {
-            JointCoordinate::Spherical(coordinate) => coordinate.resolve_displacement_at(time, candidate),
+            JointCoordinate::Spherical(coordinate) => {
+                coordinate.resolve_displacement_at(time, candidate)
+            }
             JointCoordinate::Revolute(coordinate) => {
                 Vector3::new(coordinate.resolve_angle_at(time, candidate.x), 0.0, 0.0)
             }
@@ -468,7 +472,8 @@ mod tests {
 
         let coordinates = resolve(&input).unwrap();
         let coordinate = coordinates.get(JointId::new(1)).unwrap();
-        let expected = UnitQuaternion::from_axis_angle(&Vector3::z_axis(), std::f64::consts::FRAC_PI_2);
+        let expected =
+            UnitQuaternion::from_axis_angle(&Vector3::z_axis(), std::f64::consts::FRAC_PI_2);
 
         assert_eq!(coordinate.free_component_indices(), Vec::<usize>::new());
         assert!(coordinate.relative_orientation().angle_to(&expected) < 1.0e-12);
@@ -495,7 +500,8 @@ mod tests {
 
     #[test]
     fn rejects_misaligned_revolute_hinge_axes() {
-        let tilted = UnitQuaternion::from_axis_angle(&Vector3::x_axis(), std::f64::consts::FRAC_PI_2);
+        let tilted =
+            UnitQuaternion::from_axis_angle(&Vector3::x_axis(), std::f64::consts::FRAC_PI_2);
         let input = revolute_input(vec![], tilted);
 
         let error = resolve(&input).unwrap_err();
@@ -526,12 +532,7 @@ mod tests {
             JointKind::Revolute,
             JointRole::Auto,
             marker(BodyId::GROUND, Vector3::zeros()),
-            Marker::new(
-                "j",
-                BodyId::new(1),
-                Vector3::zeros(),
-                j_marker_orientation,
-            ),
+            Marker::new("j", BodyId::new(1), Vector3::zeros(), j_marker_orientation),
         )])
         .unwrap();
 
