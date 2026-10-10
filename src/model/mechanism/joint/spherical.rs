@@ -1,6 +1,7 @@
 use nalgebra::{Matrix3, UnitQuaternion, Vector3};
 
-use crate::model::motion::JointDisplacement;
+use crate::model::coordinates::JointCoordinate;
+use crate::model::motion::{JointDisplacement, Motion};
 
 /// Spherical joint coordinate: reference orientation plus prescribed or free
 /// rotation-vector components.
@@ -29,11 +30,43 @@ impl SphericalCoordinate {
         &self.displacement
     }
 
-    pub fn component_count(&self) -> usize {
+    /// Builds this joint's coordinate from its reference orientation and
+    /// prescribed motion, if any.
+    pub fn from_reference(
+        reference_orientation: UnitQuaternion<f64>,
+        motion: Option<&Motion>,
+    ) -> Self {
+        let displacement = motion
+            .map(|motion| *motion.joint_displacement())
+            .unwrap_or_else(|| JointDisplacement::new(Vector3::new(None, None, None)));
+
+        Self::new(reference_orientation, displacement)
+    }
+
+    pub fn displacement_rate_from_relative_angular_velocity(
+        &self,
+        displacement: Vector3<f64>,
+        angular_velocity: Vector3<f64>,
+    ) -> Vector3<f64> {
+        let angle = displacement.norm();
+        let skew = displacement.cross_matrix();
+        let skew_squared = skew * skew;
+        let second = if angle < 1.0e-8 {
+            1.0 / 12.0 + angle.powi(2) / 720.0
+        } else {
+            1.0 / angle.powi(2) - 1.0 / (2.0 * angle) * (angle / 2.0).cos() / (angle / 2.0).sin()
+        };
+
+        (Matrix3::identity() - 0.5 * skew + second * skew_squared) * angular_velocity
+    }
+}
+
+impl JointCoordinate for SphericalCoordinate {
+    fn component_count(&self) -> usize {
         3
     }
 
-    pub fn free_component_indices(&self) -> Vec<usize> {
+    fn free_component_indices(&self) -> Vec<usize> {
         let rotation = self.displacement.rotation();
 
         [rotation.x, rotation.y, rotation.z]
@@ -43,24 +76,7 @@ impl SphericalCoordinate {
             .collect()
     }
 
-    /// Returns the relative orientation resulting from the prescribed
-    /// rotational displacement.
-    ///
-    /// Unprescribed rotation components are assumed to be zero.
-    pub fn relative_orientation(&self) -> UnitQuaternion<f64> {
-        self.relative_orientation_for(Vector3::zeros())
-    }
-
-    pub fn relative_orientation_for(&self, candidate: Vector3<f64>) -> UnitQuaternion<f64> {
-        UnitQuaternion::from_scaled_axis(self.resolve_displacement(candidate))
-            * self.reference_orientation
-    }
-
-    pub fn relative_orientation_at(
-        &self,
-        time: f64,
-        candidate: Vector3<f64>,
-    ) -> UnitQuaternion<f64> {
+    fn relative_orientation_at(&self, time: f64, candidate: Vector3<f64>) -> UnitQuaternion<f64> {
         UnitQuaternion::from_scaled_axis(self.resolve_displacement_at(time, candidate))
             * self.reference_orientation
     }
@@ -69,11 +85,7 @@ impl SphericalCoordinate {
     ///
     /// Components prescribed by the joint override the corresponding components
     /// of `candidate`. Unprescribed components are taken from `candidate`.
-    pub fn resolve_displacement(&self, candidate: Vector3<f64>) -> Vector3<f64> {
-        self.resolve_displacement_at(0.0, candidate)
-    }
-
-    pub fn resolve_displacement_at(&self, time: f64, candidate: Vector3<f64>) -> Vector3<f64> {
+    fn resolve_displacement_at(&self, time: f64, candidate: Vector3<f64>) -> Vector3<f64> {
         let displacement = self.displacement.at(time);
         let prescribed = displacement.rotation();
 
@@ -84,7 +96,7 @@ impl SphericalCoordinate {
         )
     }
 
-    pub fn relative_angular_velocity(
+    fn relative_angular_velocity(
         &self,
         displacement: Vector3<f64>,
         displacement_rate: Vector3<f64>,
@@ -108,7 +120,7 @@ impl SphericalCoordinate {
         (Matrix3::identity() + first * skew + second * skew_squared) * displacement_rate
     }
 
-    pub fn reverse_relative_angular_velocity(
+    fn reverse_relative_angular_velocity(
         &self,
         displacement: Vector3<f64>,
         displacement_rate: Vector3<f64>,
@@ -117,23 +129,6 @@ impl SphericalCoordinate {
         let orientation = self.relative_orientation_for(displacement);
 
         -orientation.inverse_transform_vector(&forward)
-    }
-
-    pub fn displacement_rate_from_relative_angular_velocity(
-        &self,
-        displacement: Vector3<f64>,
-        angular_velocity: Vector3<f64>,
-    ) -> Vector3<f64> {
-        let angle = displacement.norm();
-        let skew = displacement.cross_matrix();
-        let skew_squared = skew * skew;
-        let second = if angle < 1.0e-8 {
-            1.0 / 12.0 + angle.powi(2) / 720.0
-        } else {
-            1.0 / angle.powi(2) - 1.0 / (2.0 * angle) * (angle / 2.0).cos() / (angle / 2.0).sin()
-        };
-
-        (Matrix3::identity() - 0.5 * skew + second * skew_squared) * angular_velocity
     }
 }
 

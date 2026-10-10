@@ -1,7 +1,10 @@
 use kinemagic::data::coordinates::GeneralizedCoordinates;
 use kinemagic::io::yaml::{YamlError, parse_yaml_str};
 use kinemagic::model::mechanism::{BodyId, JointId};
-use kinemagic::model::{ModelError, coordinates::JointCoordinateError};
+use kinemagic::model::{
+    ModelError,
+    coordinates::{JointCoordinate, JointCoordinateError},
+};
 use kinemagic::solve::{tree_body_jacobians_for_configuration_at, tree_poses_for_configuration_at};
 use nalgebra::{UnitQuaternion, Vector3};
 

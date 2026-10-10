@@ -9,7 +9,7 @@ use thiserror::Error;
 
 use config::SolverConfig;
 use coordinates::{
-    CoordinateLayout, JointCoordinate, JointCoordinateError, JointCoordinates,
+    AnyJointCoordinate, CoordinateLayout, JointCoordinate, JointCoordinateError, JointCoordinates,
     resolve_joint_coordinates,
 };
 use mechanism::{JointId, Mechanism};
@@ -100,7 +100,7 @@ impl Model {
         self.solver
     }
 
-    pub fn joint_coordinate(&self, joint_id: JointId) -> Option<&JointCoordinate> {
+    pub fn joint_coordinate(&self, joint_id: JointId) -> Option<&AnyJointCoordinate> {
         self.joint_coordinates.get(joint_id)
     }
 
