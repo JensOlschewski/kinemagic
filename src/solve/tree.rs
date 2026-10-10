@@ -5,6 +5,7 @@ use nalgebra::{DMatrix, UnitQuaternion, Vector3};
 use crate::data::Data;
 use crate::data::coordinates::{GeneralizedCoordinates, GeneralizedCoordinatesError};
 use crate::model::Model;
+use crate::model::coordinates::JointCoordinate;
 use crate::model::mechanism::joint::geometry;
 use crate::model::mechanism::{BodyId, JointId};
 use crate::model::topology::TraversalDirection;

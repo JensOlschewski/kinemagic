@@ -1,7 +1,7 @@
 use crate::model::mechanism::joint::revolute::RevoluteCoordinate;
 use crate::model::mechanism::joint::spherical::SphericalCoordinate;
 use crate::model::mechanism::{JointId, JointKind, Mechanism};
-use crate::model::motion::{JointDisplacement, Motions};
+use crate::model::motion::Motions;
 
 use nalgebra::{UnitQuaternion, Vector3};
 use std::collections::BTreeMap;
@@ -10,25 +10,49 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use thiserror::Error;
 
 const REFERENCE_POSITION_TOLERANCE: f64 = 1.0e-9;
-const REFERENCE_AXIS_TOLERANCE: f64 = 1.0e-9;
 static NEXT_LAYOUT_ID: AtomicUsize = AtomicUsize::new(1);
 
-/// Resolved joint coordinate, dispatching to the kinematics of its joint
-/// kind.
+/// Behavior every joint's coordinate type must provide: how its
+/// generalized coordinate(s) map to a relative orientation and angular
+/// velocity. One joint kind, one impl.
 ///
 /// Pose propagation and the position part of closure residuals are the same
 /// geometric fact for every joint kind (markers coincide) and call the
-/// shared `spherical` functions directly, without going through this type.
-/// This enum exists for the behavior that genuinely differs by kind: how a
-/// joint's generalized coordinate(s) map to a relative orientation and
-/// angular velocity.
+/// shared `joint::geometry` functions directly, without going through this
+/// trait.
+pub trait JointCoordinate {
+    fn component_count(&self) -> usize;
+    fn free_component_indices(&self) -> Vec<usize>;
+    fn relative_orientation_at(&self, time: f64, candidate: Vector3<f64>) -> UnitQuaternion<f64>;
+    fn resolve_displacement_at(&self, time: f64, candidate: Vector3<f64>) -> Vector3<f64>;
+    fn relative_angular_velocity(
+        &self,
+        displacement: Vector3<f64>,
+        displacement_rate: Vector3<f64>,
+    ) -> Vector3<f64>;
+    fn reverse_relative_angular_velocity(
+        &self,
+        displacement: Vector3<f64>,
+        displacement_rate: Vector3<f64>,
+    ) -> Vector3<f64>;
+
+    fn relative_orientation(&self) -> UnitQuaternion<f64> {
+        self.relative_orientation_for(Vector3::zeros())
+    }
+
+    fn relative_orientation_for(&self, candidate: Vector3<f64>) -> UnitQuaternion<f64> {
+        self.relative_orientation_at(0.0, candidate)
+    }
+}
+
+/// One of the known joint coordinate kinds, picked at runtime.
 #[derive(Debug, Clone, Copy)]
-pub enum JointCoordinate {
+pub enum AnyJointCoordinate {
     Spherical(SphericalCoordinate),
     Revolute(RevoluteCoordinate),
 }
 
-impl JointCoordinate {
+impl AnyJointCoordinate {
     /// Returns the spherical coordinate, or `None` for a revolute joint.
     ///
     /// Closure residuals are only implemented for spherical joints so far
@@ -36,87 +60,53 @@ impl JointCoordinate {
     /// already operate on a closure joint may `.expect(...)` this.
     pub fn as_spherical(&self) -> Option<&SphericalCoordinate> {
         match self {
-            JointCoordinate::Spherical(coordinate) => Some(coordinate),
-            JointCoordinate::Revolute(_) => None,
+            AnyJointCoordinate::Spherical(coordinate) => Some(coordinate),
+            AnyJointCoordinate::Revolute(_) => None,
         }
     }
 
-    pub fn component_count(&self) -> usize {
+    /// The only place that matches on the concrete variant.
+    fn as_trait(&self) -> &dyn JointCoordinate {
         match self {
-            JointCoordinate::Spherical(coordinate) => coordinate.component_count(),
-            JointCoordinate::Revolute(coordinate) => coordinate.component_count(),
+            AnyJointCoordinate::Spherical(coordinate) => coordinate,
+            AnyJointCoordinate::Revolute(coordinate) => coordinate,
         }
     }
+}
 
-    pub fn free_component_indices(&self) -> Vec<usize> {
-        match self {
-            JointCoordinate::Spherical(coordinate) => coordinate.free_component_indices(),
-            JointCoordinate::Revolute(coordinate) => coordinate.free_component_indices(),
-        }
+impl JointCoordinate for AnyJointCoordinate {
+    fn component_count(&self) -> usize {
+        self.as_trait().component_count()
     }
 
-    pub fn relative_orientation(&self) -> UnitQuaternion<f64> {
-        self.relative_orientation_for(Vector3::zeros())
+    fn free_component_indices(&self) -> Vec<usize> {
+        self.as_trait().free_component_indices()
     }
 
-    pub fn relative_orientation_for(&self, candidate: Vector3<f64>) -> UnitQuaternion<f64> {
-        self.relative_orientation_at(0.0, candidate)
+    fn relative_orientation_at(&self, time: f64, candidate: Vector3<f64>) -> UnitQuaternion<f64> {
+        self.as_trait().relative_orientation_at(time, candidate)
     }
 
-    pub fn relative_orientation_at(
-        &self,
-        time: f64,
-        candidate: Vector3<f64>,
-    ) -> UnitQuaternion<f64> {
-        match self {
-            JointCoordinate::Spherical(coordinate) => {
-                coordinate.relative_orientation_at(time, candidate)
-            }
-            JointCoordinate::Revolute(coordinate) => {
-                coordinate.relative_orientation_at(time, candidate.x)
-            }
-        }
+    fn resolve_displacement_at(&self, time: f64, candidate: Vector3<f64>) -> Vector3<f64> {
+        self.as_trait().resolve_displacement_at(time, candidate)
     }
 
-    pub fn resolve_displacement_at(&self, time: f64, candidate: Vector3<f64>) -> Vector3<f64> {
-        match self {
-            JointCoordinate::Spherical(coordinate) => {
-                coordinate.resolve_displacement_at(time, candidate)
-            }
-            JointCoordinate::Revolute(coordinate) => {
-                Vector3::new(coordinate.resolve_angle_at(time, candidate.x), 0.0, 0.0)
-            }
-        }
-    }
-
-    pub fn relative_angular_velocity(
+    fn relative_angular_velocity(
         &self,
         displacement: Vector3<f64>,
         displacement_rate: Vector3<f64>,
     ) -> Vector3<f64> {
-        match self {
-            JointCoordinate::Spherical(coordinate) => {
-                coordinate.relative_angular_velocity(displacement, displacement_rate)
-            }
-            JointCoordinate::Revolute(coordinate) => {
-                coordinate.relative_angular_velocity(displacement_rate.x)
-            }
-        }
+        self.as_trait()
+            .relative_angular_velocity(displacement, displacement_rate)
     }
 
-    pub fn reverse_relative_angular_velocity(
+    fn reverse_relative_angular_velocity(
         &self,
         displacement: Vector3<f64>,
         displacement_rate: Vector3<f64>,
     ) -> Vector3<f64> {
-        match self {
-            JointCoordinate::Spherical(coordinate) => {
-                coordinate.reverse_relative_angular_velocity(displacement, displacement_rate)
-            }
-            JointCoordinate::Revolute(coordinate) => {
-                coordinate.reverse_relative_angular_velocity(displacement.x, displacement_rate.x)
-            }
-        }
+        self.as_trait()
+            .reverse_relative_angular_velocity(displacement, displacement_rate)
     }
 }
 
@@ -174,11 +164,11 @@ impl CoordinateLayout {
 
 #[derive(Debug)]
 pub struct JointCoordinates {
-    values: BTreeMap<JointId, JointCoordinate>,
+    values: BTreeMap<JointId, AnyJointCoordinate>,
 }
 
 impl JointCoordinates {
-    pub fn get(&self, joint_id: JointId) -> Option<&JointCoordinate> {
+    pub fn get(&self, joint_id: JointId) -> Option<&AnyJointCoordinate> {
         self.values.get(&joint_id)
     }
 }
@@ -248,57 +238,15 @@ pub fn resolve_joint_coordinates(
         let j_orientation = j_body.orientation() * joint.j_marker().orientation();
 
         let reference_orientation = i_orientation.inverse() * j_orientation;
+        let motion = motions_by_joint.get(&joint.id()).copied();
 
         let coordinate = match joint.kind() {
-            JointKind::Spherical => {
-                let displacement = if let Some(motion) = motions_by_joint.get(&joint.id()) {
-                    *motion.joint_displacement()
-                } else {
-                    JointDisplacement::new(Vector3::new(None, None, None))
-                };
-
-                JointCoordinate::Spherical(SphericalCoordinate::new(
-                    reference_orientation,
-                    displacement,
-                ))
-            }
-            JointKind::Revolute => {
-                // A single hinge angle can only reproduce the reference pose
-                // when both markers' local Z axes already coincide in world
-                // space; otherwise the "missing" tilt has nowhere to go.
-                let i_axis = i_orientation.transform_vector(&Vector3::z());
-                let j_axis = j_orientation.transform_vector(&Vector3::z());
-                let axis_misalignment = (i_axis - j_axis).norm();
-
-                if axis_misalignment > REFERENCE_AXIS_TOLERANCE {
-                    return Err(JointCoordinateError::MisalignedHingeAxes {
-                        joint_id: joint.id(),
-                        misalignment: axis_misalignment,
-                        tolerance: REFERENCE_AXIS_TOLERANCE,
-                    });
-                }
-
-                let (angle, angle_rate) = if let Some(motion) = motions_by_joint.get(&joint.id()) {
-                    let rotation = *motion.joint_displacement().rotation();
-                    if rotation.x.is_some() || rotation.y.is_some() {
-                        return Err(JointCoordinateError::IncompatibleMotion {
-                            joint_id: joint.id(),
-                            motion_name: motion.name().to_owned(),
-                        });
-                    }
-
-                    let rate = motion.joint_displacement().rotation_rate().z.unwrap_or(0.0);
-                    (rotation.z, rate)
-                } else {
-                    (None, 0.0)
-                };
-
-                JointCoordinate::Revolute(RevoluteCoordinate::new(
-                    reference_orientation,
-                    angle,
-                    angle_rate,
-                ))
-            }
+            JointKind::Spherical => AnyJointCoordinate::Spherical(
+                SphericalCoordinate::from_reference(reference_orientation, motion),
+            ),
+            JointKind::Revolute => AnyJointCoordinate::Revolute(
+                RevoluteCoordinate::from_reference(joint.id(), reference_orientation, motion)?,
+            ),
         };
 
         values.insert(joint.id(), coordinate);

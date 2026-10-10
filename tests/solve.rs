@@ -1,6 +1,6 @@
 use kinemagic::io::yaml::parse_yaml_str;
 use kinemagic::model::mechanism::{BodyId, JointId};
-use kinemagic::model::{Model, topology::TraversalDirection};
+use kinemagic::model::{Model, coordinates::JointCoordinate, topology::TraversalDirection};
 use kinemagic::solve::{
     BodyPose, BodyPoses, SequenceSolver, SolverProgress, solve, solve_at, solve_at_with_progress,
 };

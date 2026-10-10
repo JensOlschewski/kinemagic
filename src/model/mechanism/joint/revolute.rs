@@ -1,5 +1,11 @@
 use nalgebra::{UnitQuaternion, Vector3};
 
+use crate::model::coordinates::{JointCoordinate, JointCoordinateError};
+use crate::model::mechanism::JointId;
+use crate::model::motion::Motion;
+
+const REFERENCE_AXIS_TOLERANCE: f64 = 1.0e-9;
+
 /// Revolute joint coordinate: reference orientation plus a single prescribed
 /// or free rotation about the marker-local Z axis (the hinge axis).
 #[derive(Debug, Clone, Copy)]
@@ -26,30 +32,46 @@ impl RevoluteCoordinate {
         self.reference_orientation
     }
 
-    pub fn component_count(&self) -> usize {
-        1
-    }
-
-    pub fn free_component_indices(&self) -> Vec<usize> {
-        self.angle.is_none().then_some(0).into_iter().collect()
-    }
-
-    /// Returns the relative orientation resulting from the prescribed
-    /// angular displacement.
+    /// Builds this joint's coordinate from its reference orientation and
+    /// prescribed motion, if any.
     ///
-    /// An unprescribed angle is assumed to be zero.
-    pub fn relative_orientation(&self) -> UnitQuaternion<f64> {
-        self.relative_orientation_for(0.0)
-    }
+    /// A single hinge angle can only reproduce the reference pose when both
+    /// markers' local Z axes already coincide in world space — equivalently,
+    /// when `reference_orientation` leaves the Z axis invariant. Otherwise
+    /// the "missing" tilt has nowhere to go.
+    pub fn from_reference(
+        joint_id: JointId,
+        reference_orientation: UnitQuaternion<f64>,
+        motion: Option<&Motion>,
+    ) -> Result<Self, JointCoordinateError> {
+        let axis = Vector3::z();
+        let misalignment = (axis - reference_orientation.transform_vector(&axis)).norm();
 
-    pub fn relative_orientation_for(&self, candidate: f64) -> UnitQuaternion<f64> {
-        UnitQuaternion::from_axis_angle(&Vector3::z_axis(), self.resolve_angle(candidate))
-            * self.reference_orientation
-    }
+        if misalignment > REFERENCE_AXIS_TOLERANCE {
+            return Err(JointCoordinateError::MisalignedHingeAxes {
+                joint_id,
+                misalignment,
+                tolerance: REFERENCE_AXIS_TOLERANCE,
+            });
+        }
 
-    pub fn relative_orientation_at(&self, time: f64, candidate: f64) -> UnitQuaternion<f64> {
-        UnitQuaternion::from_axis_angle(&Vector3::z_axis(), self.resolve_angle_at(time, candidate))
-            * self.reference_orientation
+        let (angle, angle_rate) = match motion {
+            Some(motion) => {
+                let rotation = *motion.joint_displacement().rotation();
+                if rotation.x.is_some() || rotation.y.is_some() {
+                    return Err(JointCoordinateError::IncompatibleMotion {
+                        joint_id,
+                        motion_name: motion.name().to_owned(),
+                    });
+                }
+
+                let rate = motion.joint_displacement().rotation_rate().z.unwrap_or(0.0);
+                (rotation.z, rate)
+            }
+            None => (None, 0.0),
+        };
+
+        Ok(Self::new(reference_orientation, angle, angle_rate))
     }
 
     /// Resolves the joint angle.
@@ -65,6 +87,27 @@ impl RevoluteCoordinate {
             .map(|angle| angle + self.angle_rate * time)
             .unwrap_or(candidate)
     }
+}
+
+impl JointCoordinate for RevoluteCoordinate {
+    fn component_count(&self) -> usize {
+        1
+    }
+
+    fn free_component_indices(&self) -> Vec<usize> {
+        self.angle.is_none().then_some(0).into_iter().collect()
+    }
+
+    fn relative_orientation_at(&self, time: f64, candidate: Vector3<f64>) -> UnitQuaternion<f64> {
+        UnitQuaternion::from_axis_angle(
+            &Vector3::z_axis(),
+            self.resolve_angle_at(time, candidate.x),
+        )
+    }
+
+    fn resolve_displacement_at(&self, time: f64, candidate: Vector3<f64>) -> Vector3<f64> {
+        Vector3::new(self.resolve_angle_at(time, candidate.x), 0.0, 0.0)
+    }
 
     /// Relative angular velocity for a given rate of change of the hinge
     /// angle, expressed in the parent marker frame.
@@ -72,13 +115,21 @@ impl RevoluteCoordinate {
     /// The hinge axis is fixed at the marker-local Z axis, so unlike a
     /// spherical joint this needs no Rodrigues-formula mapping: the angular
     /// velocity is simply the rate about that axis.
-    pub fn relative_angular_velocity(&self, angle_rate: f64) -> Vector3<f64> {
-        Vector3::z() * angle_rate
+    fn relative_angular_velocity(
+        &self,
+        _displacement: Vector3<f64>,
+        displacement_rate: Vector3<f64>,
+    ) -> Vector3<f64> {
+        Vector3::z() * displacement_rate.x
     }
 
-    pub fn reverse_relative_angular_velocity(&self, angle: f64, angle_rate: f64) -> Vector3<f64> {
-        let forward = self.relative_angular_velocity(angle_rate);
-        let orientation = self.relative_orientation_for(angle);
+    fn reverse_relative_angular_velocity(
+        &self,
+        displacement: Vector3<f64>,
+        displacement_rate: Vector3<f64>,
+    ) -> Vector3<f64> {
+        let forward = self.relative_angular_velocity(displacement, displacement_rate);
+        let orientation = self.relative_orientation_for(displacement);
 
         -orientation.inverse_transform_vector(&forward)
     }
@@ -93,7 +144,7 @@ mod tests {
         let coordinate = RevoluteCoordinate::new(UnitQuaternion::identity(), None, 0.0);
 
         assert_eq!(
-            coordinate.relative_angular_velocity(0.7),
+            coordinate.relative_angular_velocity(Vector3::zeros(), Vector3::new(0.7, 0.0, 0.0)),
             Vector3::new(0.0, 0.0, 0.7)
         );
     }
@@ -139,8 +190,10 @@ mod tests {
     #[test]
     fn reverse_angular_velocity_is_negated_and_frame_transformed() {
         let coordinate = RevoluteCoordinate::new(UnitQuaternion::identity(), None, 0.0);
-        let forward = coordinate.relative_angular_velocity(0.6);
-        let reverse = coordinate.reverse_relative_angular_velocity(0.0, 0.6);
+        let forward =
+            coordinate.relative_angular_velocity(Vector3::zeros(), Vector3::new(0.6, 0.0, 0.0));
+        let reverse = coordinate
+            .reverse_relative_angular_velocity(Vector3::zeros(), Vector3::new(0.6, 0.0, 0.0));
 
         assert!((reverse + forward).norm() < 1.0e-12);
     }
