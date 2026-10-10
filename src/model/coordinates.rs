@@ -21,6 +21,7 @@ static NEXT_LAYOUT_ID: AtomicUsize = AtomicUsize::new(1);
 /// shared `joint::geometry` functions directly, without going through this
 /// trait.
 pub trait JointCoordinate {
+    fn reference_orientation(&self) -> UnitQuaternion<f64>;
     fn component_count(&self) -> usize;
     fn free_component_indices(&self) -> Vec<usize>;
     fn relative_orientation_at(&self, time: f64, candidate: Vector3<f64>) -> UnitQuaternion<f64>;
@@ -35,6 +36,16 @@ pub trait JointCoordinate {
         displacement: Vector3<f64>,
         displacement_rate: Vector3<f64>,
     ) -> Vector3<f64>;
+
+    /// Orientation closure residual targets at `time`: which of the three
+    /// world-frame rotation-vector axes (x=0, y=1, z=2) this joint
+    /// constrains for a closed loop, and what value each one must equal.
+    ///
+    /// The caller computes `actual_displacement` (the scaled-axis deviation
+    /// of the actual relative marker orientation from this coordinate's
+    /// `reference_orientation`) and reads off a residual
+    /// `actual_displacement[axis] - target` for each returned pair.
+    fn closure_orientation_residual_targets(&self, time: f64) -> Vec<(usize, f64)>;
 
     fn relative_orientation(&self) -> UnitQuaternion<f64> {
         self.relative_orientation_for(Vector3::zeros())
@@ -53,18 +64,6 @@ pub enum AnyJointCoordinate {
 }
 
 impl AnyJointCoordinate {
-    /// Returns the spherical coordinate, or `None` for a revolute joint.
-    ///
-    /// Closure residuals are only implemented for spherical joints so far
-    /// (`Topology::build` rejects a revolute closure joint); callers that
-    /// already operate on a closure joint may `.expect(...)` this.
-    pub fn as_spherical(&self) -> Option<&SphericalCoordinate> {
-        match self {
-            AnyJointCoordinate::Spherical(coordinate) => Some(coordinate),
-            AnyJointCoordinate::Revolute(_) => None,
-        }
-    }
-
     /// The only place that matches on the concrete variant.
     fn as_trait(&self) -> &dyn JointCoordinate {
         match self {
@@ -75,6 +74,10 @@ impl AnyJointCoordinate {
 }
 
 impl JointCoordinate for AnyJointCoordinate {
+    fn reference_orientation(&self) -> UnitQuaternion<f64> {
+        self.as_trait().reference_orientation()
+    }
+
     fn component_count(&self) -> usize {
         self.as_trait().component_count()
     }
@@ -107,6 +110,10 @@ impl JointCoordinate for AnyJointCoordinate {
     ) -> Vector3<f64> {
         self.as_trait()
             .reverse_relative_angular_velocity(displacement, displacement_rate)
+    }
+
+    fn closure_orientation_residual_targets(&self, time: f64) -> Vec<(usize, f64)> {
+        self.as_trait().closure_orientation_residual_targets(time)
     }
 }
 

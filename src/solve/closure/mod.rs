@@ -1,10 +1,11 @@
 use std::collections::BTreeMap;
 
-use nalgebra::{DMatrix, Matrix3, UnitQuaternion, Vector3};
+use nalgebra::{DMatrix, Matrix3, Vector3};
 use thiserror::Error;
 
 use crate::data::coordinates::{GeneralizedCoordinates, GeneralizedCoordinatesError};
 use crate::model::Model;
+use crate::model::coordinates::JointCoordinate;
 use crate::model::mechanism::joint::geometry;
 use crate::model::mechanism::{BodyId, JointId};
 use crate::solve::state::{BodyPoses, BodyTwist};
@@ -68,9 +69,7 @@ fn closure_jacobian_from_body_jacobians(
             .expect("Model contains missing closure joint");
         let coordinate = problem
             .joint_coordinate(*joint_id)
-            .expect("Model contains missing joint coordinate")
-            .as_spherical()
-            .expect("closure joints are validated to be spherical");
+            .expect("Model contains missing joint coordinate");
         let i_pose = poses
             .get(joint.i_marker().body_id())
             .expect("closure joint i body has no pose");
@@ -100,15 +99,15 @@ fn closure_jacobian_from_body_jacobians(
         let actual_displacement =
             (actual * coordinate.reference_orientation().inverse()).scaled_axis();
         let displacement_rate_matrix = Matrix3::from_columns(&[
-            coordinate.displacement_rate_from_relative_angular_velocity(
+            geometry::displacement_rate_from_relative_angular_velocity(
                 actual_displacement,
                 Vector3::x(),
             ),
-            coordinate.displacement_rate_from_relative_angular_velocity(
+            geometry::displacement_rate_from_relative_angular_velocity(
                 actual_displacement,
                 Vector3::y(),
             ),
-            coordinate.displacement_rate_from_relative_angular_velocity(
+            geometry::displacement_rate_from_relative_angular_velocity(
                 actual_displacement,
                 Vector3::z(),
             ),
@@ -121,17 +120,11 @@ fn closure_jacobian_from_body_jacobians(
             * (j_jacobian.fixed_rows::<3>(3).into_owned()
                 - i_jacobian.fixed_rows::<3>(3).into_owned());
         let displacement_rate = displacement_rate_matrix * relative_angular_velocity;
-        let requested = coordinate.displacement().rotation();
-        for (component, requested) in [requested.x, requested.y, requested.z]
-            .into_iter()
-            .enumerate()
-        {
-            if requested.is_some() {
-                jacobian
-                    .row_mut(orientation_row)
-                    .copy_from(&displacement_rate.row(component));
-                orientation_row += 1;
-            }
+        for (component, _target) in coordinate.closure_orientation_residual_targets(time) {
+            jacobian
+                .row_mut(orientation_row)
+                .copy_from(&displacement_rate.row(component));
+            orientation_row += 1;
         }
     }
     Ok(jacobian)
@@ -170,9 +163,7 @@ pub fn closure_orientation_residuals_at(problem: &Model, poses: &BodyPoses, time
                 .expect("Model contains missing closure joint");
             let coordinate = problem
                 .joint_coordinate(*joint_id)
-                .expect("Model contains missing joint coordinate")
-                .as_spherical()
-                .expect("closure joints are validated to be spherical");
+                .expect("Model contains missing joint coordinate");
             let i_pose = poses
                 .get(joint.i_marker().body_id())
                 .expect("closure joint i body has no pose");
@@ -183,20 +174,12 @@ pub fn closure_orientation_residuals_at(problem: &Model, poses: &BodyPoses, time
                 * j_pose.marker_orientation(joint.j_marker());
             let actual_displacement =
                 (actual * coordinate.reference_orientation().inverse()).scaled_axis();
-            let requested_displacement = coordinate.displacement().at(time);
-            let requested = requested_displacement.rotation();
-            let canonical_requested = UnitQuaternion::from_scaled_axis(Vector3::new(
-                requested.x.unwrap_or(0.0),
-                requested.y.unwrap_or(0.0),
-                requested.z.unwrap_or(0.0),
-            ))
-            .scaled_axis();
-            [requested.x, requested.y, requested.z]
+
+            coordinate
+                .closure_orientation_residual_targets(time)
                 .into_iter()
-                .enumerate()
-                .filter_map(move |(index, requested)| {
-                    requested.map(|_| actual_displacement[index] - canonical_requested[index])
-                })
+                .map(move |(axis, target)| actual_displacement[axis] - target)
+                .collect::<Vec<_>>()
         })
         .collect()
 }
@@ -259,9 +242,7 @@ pub fn closure_orientation_residual_rates(
             .expect("Model contains missing closure joint");
         let coordinate = problem
             .joint_coordinate(*joint_id)
-            .expect("Model contains missing joint coordinate")
-            .as_spherical()
-            .expect("closure joints are validated to be spherical");
+            .expect("Model contains missing joint coordinate");
         let i_pose = poses
             .get(joint.i_marker().body_id())
             .expect("closure joint i body has no pose");
@@ -289,18 +270,12 @@ pub fn closure_orientation_residual_rates(
         let relative_angular_velocity = i_pose
             .marker_orientation(joint.i_marker())
             .inverse_transform_vector(&(j_twist.angular_velocity() - i_twist.angular_velocity()));
-        let actual_displacement_rate = coordinate.displacement_rate_from_relative_angular_velocity(
+        let actual_displacement_rate = geometry::displacement_rate_from_relative_angular_velocity(
             actual_displacement,
             relative_angular_velocity,
         );
-        let requested = coordinate.displacement().rotation();
-        for (index, requested) in [requested.x, requested.y, requested.z]
-            .into_iter()
-            .enumerate()
-        {
-            if requested.is_some() {
-                rates.push(actual_displacement_rate[index]);
-            }
+        for (axis, _target) in coordinate.closure_orientation_residual_targets(0.0) {
+            rates.push(actual_displacement_rate[axis]);
         }
     }
     Ok(rates)
