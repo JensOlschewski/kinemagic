@@ -1,4 +1,4 @@
-use nalgebra::{Matrix3, SMatrix, UnitQuaternion};
+use nalgebra::{Matrix3, SMatrix, UnitQuaternion, Vector3};
 
 use crate::model::mechanism::Marker;
 use crate::model::spatial::BodyPose;
@@ -51,6 +51,25 @@ pub fn position_jacobian_blocks(
     (gi, gj)
 }
 
+/// Rate of change of a rotation vector (axis-angle `displacement`) given
+/// the actual relative angular velocity producing it — the derivative of
+/// the `so(3)` log map, independent of joint kind.
+pub fn displacement_rate_from_relative_angular_velocity(
+    displacement: Vector3<f64>,
+    angular_velocity: Vector3<f64>,
+) -> Vector3<f64> {
+    let angle = displacement.norm();
+    let skew = displacement.cross_matrix();
+    let skew_squared = skew * skew;
+    let second = if angle < 1.0e-8 {
+        1.0 / 12.0 + angle.powi(2) / 720.0
+    } else {
+        1.0 / angle.powi(2) - 1.0 / (2.0 * angle) * (angle / 2.0).cos() / (angle / 2.0).sin()
+    };
+
+    (Matrix3::identity() - 0.5 * skew + second * skew_squared) * angular_velocity
+}
+
 #[cfg(test)]
 mod tests {
     use nalgebra::Vector3;
@@ -58,6 +77,46 @@ mod tests {
     use super::*;
     use crate::model::mechanism::BodyId;
     use crate::model::spatial::BodyTwist;
+
+    #[test]
+    fn displacement_rate_is_inverse_of_relative_angular_velocity() {
+        // `relative_angular_velocity` (spherical.rs) is independently
+        // verified against a finite difference of the scaled-axis
+        // orientation; here `displacement_rate_from_relative_angular_velocity`
+        // is checked as its exact inverse, for a displacement rate that is
+        // not aligned with the displacement itself (exercises off-axis
+        // coupling, not just a scalar rescale along a shared axis).
+        use crate::model::coordinates::JointCoordinate;
+        use crate::model::mechanism::joint::spherical::SphericalCoordinate;
+        use crate::model::motion::JointDisplacement;
+
+        let coordinate = SphericalCoordinate::new(
+            UnitQuaternion::identity(),
+            JointDisplacement::new(Vector3::new(None, None, None)),
+        );
+        let displacement = Vector3::new(0.3, -0.5, 0.2);
+        let displacement_rate = Vector3::new(0.1, 0.4, -0.3);
+        let angular_velocity =
+            coordinate.relative_angular_velocity(displacement, displacement_rate);
+
+        let recovered =
+            displacement_rate_from_relative_angular_velocity(displacement, angular_velocity);
+
+        assert!((recovered - displacement_rate).norm() < 1.0e-12);
+    }
+
+    #[test]
+    fn displacement_rate_handles_small_displacement_without_singularity() {
+        let displacement = Vector3::new(1.0e-10, -2.0e-10, 3.0e-10);
+        let angular_velocity = Vector3::new(0.4, -0.5, 0.6);
+
+        assert!(
+            (displacement_rate_from_relative_angular_velocity(displacement, angular_velocity)
+                - angular_velocity)
+                .norm()
+                < 1.0e-9
+        );
+    }
 
     #[test]
     fn preserves_marker_coincidence_with_offsets() {

@@ -28,10 +28,6 @@ impl RevoluteCoordinate {
         }
     }
 
-    pub fn reference_orientation(&self) -> UnitQuaternion<f64> {
-        self.reference_orientation
-    }
-
     /// Builds this joint's coordinate from its reference orientation and
     /// prescribed motion, if any.
     ///
@@ -90,6 +86,10 @@ impl RevoluteCoordinate {
 }
 
 impl JointCoordinate for RevoluteCoordinate {
+    fn reference_orientation(&self) -> UnitQuaternion<f64> {
+        self.reference_orientation
+    }
+
     fn component_count(&self) -> usize {
         1
     }
@@ -132,6 +132,15 @@ impl JointCoordinate for RevoluteCoordinate {
         let orientation = self.relative_orientation_for(displacement);
 
         -orientation.inverse_transform_vector(&forward)
+    }
+
+    /// The hinge physically disallows tilt off its own axis, so a revolute
+    /// closure joint always constrains the two rotation-vector axes
+    /// orthogonal to the hinge (x=0, y=1) to zero — independent of any
+    /// prescribed motion. The hinge axis itself (z=2) is never constrained
+    /// here: it is the joint's one free rotation.
+    fn closure_orientation_residual_targets(&self, _time: f64) -> Vec<(usize, f64)> {
+        vec![(0, 0.0), (1, 0.0)]
     }
 }
 
@@ -196,5 +205,68 @@ mod tests {
             .reverse_relative_angular_velocity(Vector3::zeros(), Vector3::new(0.6, 0.0, 0.0));
 
         assert!((reverse + forward).norm() < 1.0e-12);
+    }
+
+    #[test]
+    fn closure_targets_constrain_hinge_orthogonal_axes_to_zero_regardless_of_motion() {
+        let free = RevoluteCoordinate::new(UnitQuaternion::identity(), None, 0.0);
+        let prescribed = RevoluteCoordinate::new(UnitQuaternion::identity(), Some(0.7), 0.0);
+
+        assert_eq!(
+            free.closure_orientation_residual_targets(0.0),
+            vec![(0, 0.0), (1, 0.0)]
+        );
+        assert_eq!(
+            prescribed.closure_orientation_residual_targets(0.0),
+            vec![(0, 0.0), (1, 0.0)]
+        );
+    }
+
+    #[test]
+    fn closure_residual_reports_marker_tilt_off_hinge_axis() {
+        use crate::model::mechanism::joint::geometry::displacement_rate_from_relative_angular_velocity;
+
+        let coordinate = RevoluteCoordinate::new(UnitQuaternion::identity(), None, 0.0);
+        // The actual relative marker orientation has drifted off the hinge
+        // axis by a tilt about X, plus a free rotation about the hinge (Z)
+        // that must NOT show up as a residual. A single scaled-axis vector
+        // with both components, rather than two composed rotations, keeps
+        // the expected values exact (rotation composition is not additive
+        // in the log map).
+        let actual_displacement = Vector3::new(0.05, 0.0, 0.6);
+        let actual = UnitQuaternion::from_scaled_axis(actual_displacement);
+        let actual_displacement =
+            (actual * coordinate.reference_orientation().inverse()).scaled_axis();
+
+        let residuals: Vec<f64> = coordinate
+            .closure_orientation_residual_targets(0.0)
+            .into_iter()
+            .map(|(axis, target)| actual_displacement[axis] - target)
+            .collect();
+
+        assert_eq!(residuals.len(), 2);
+        assert!((residuals[0] - 0.05).abs() < 1.0e-9);
+        assert!(residuals[1].abs() < 1.0e-9);
+
+        // Finite-difference check: the rate formula applied to the two
+        // constrained axes matches the numerical derivative of the
+        // residual as the actual orientation is perturbed by a small
+        // angular velocity.
+        let angular_velocity = Vector3::new(0.3, -0.2, 0.9);
+        let step = 1.0e-7;
+        let perturb = |sign: f64| {
+            let perturbed =
+                UnitQuaternion::from_scaled_axis(sign * step * angular_velocity) * actual;
+            (perturbed * coordinate.reference_orientation().inverse()).scaled_axis()
+        };
+        let forward = perturb(1.0);
+        let backward = perturb(-1.0);
+        let finite_difference = (forward - backward) / (2.0 * step);
+        let rate =
+            displacement_rate_from_relative_angular_velocity(actual_displacement, angular_velocity);
+
+        for (axis, _) in coordinate.closure_orientation_residual_targets(0.0) {
+            assert!((rate[axis] - finite_difference[axis]).abs() < 1.0e-6);
+        }
     }
 }

@@ -22,10 +22,6 @@ impl SphericalCoordinate {
         }
     }
 
-    pub fn reference_orientation(&self) -> UnitQuaternion<f64> {
-        self.reference_orientation
-    }
-
     pub fn displacement(&self) -> &JointDisplacement {
         &self.displacement
     }
@@ -42,26 +38,13 @@ impl SphericalCoordinate {
 
         Self::new(reference_orientation, displacement)
     }
-
-    pub fn displacement_rate_from_relative_angular_velocity(
-        &self,
-        displacement: Vector3<f64>,
-        angular_velocity: Vector3<f64>,
-    ) -> Vector3<f64> {
-        let angle = displacement.norm();
-        let skew = displacement.cross_matrix();
-        let skew_squared = skew * skew;
-        let second = if angle < 1.0e-8 {
-            1.0 / 12.0 + angle.powi(2) / 720.0
-        } else {
-            1.0 / angle.powi(2) - 1.0 / (2.0 * angle) * (angle / 2.0).cos() / (angle / 2.0).sin()
-        };
-
-        (Matrix3::identity() - 0.5 * skew + second * skew_squared) * angular_velocity
-    }
 }
 
 impl JointCoordinate for SphericalCoordinate {
+    fn reference_orientation(&self) -> UnitQuaternion<f64> {
+        self.reference_orientation
+    }
+
     fn component_count(&self) -> usize {
         3
     }
@@ -129,6 +112,28 @@ impl JointCoordinate for SphericalCoordinate {
         let orientation = self.relative_orientation_for(displacement);
 
         -orientation.inverse_transform_vector(&forward)
+    }
+
+    /// One `(axis, target)` pair per rotation-vector axis (x=0, y=1, z=2)
+    /// the joint's motion prescribes, target the canonical requested
+    /// rotation-vector value for that axis. An axis with no prescribed
+    /// motion contributes no closure residual — it is left free for other
+    /// joints' coordinates to resolve.
+    fn closure_orientation_residual_targets(&self, time: f64) -> Vec<(usize, f64)> {
+        let requested = self.displacement.at(time);
+        let requested = requested.rotation();
+        let canonical_requested = UnitQuaternion::from_scaled_axis(Vector3::new(
+            requested.x.unwrap_or(0.0),
+            requested.y.unwrap_or(0.0),
+            requested.z.unwrap_or(0.0),
+        ))
+        .scaled_axis();
+
+        [requested.x, requested.y, requested.z]
+            .into_iter()
+            .enumerate()
+            .filter_map(|(index, requested)| requested.map(|_| (index, canonical_requested[index])))
+            .collect()
     }
 }
 
