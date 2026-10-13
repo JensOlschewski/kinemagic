@@ -172,6 +172,20 @@ fn solves_time_dependent_closed_loop_problem() {
 }
 
 #[test]
+fn solves_four_bar_linkage_closed_loop() {
+    let problem = prepared(include_str!("fixtures/four_bar_linkage.yaml"));
+
+    let poses = solve(&problem).unwrap();
+
+    assert_complete(&problem, &poses);
+    assert!(
+        kinemagic::solve::closure_residuals_at(&problem, &poses, 0.0)
+            .iter()
+            .all(|residual| residual.abs() < 1.0e-8)
+    );
+}
+
+#[test]
 fn sequence_solver_preserves_closed_loop_branch_through_singularity() {
     let problem = prepared(include_str!(
         "fixtures/spherical_three_body_closed_loop.yaml"

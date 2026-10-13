@@ -18,6 +18,7 @@ Examples:
 - [2D one-body motion](examples/revolute_one_body_motion.yaml)
 - [2D three-body chain](examples/spherical_three_body_chain.yaml)
 - [3D spherical plate](examples/spherical_plate_3d_motion.yaml)
+- [Four-bar closed loop](examples/four_bar_linkage.yaml)
 
 ![Animated terminal viewer](docs/assets/viewer.gif)
 

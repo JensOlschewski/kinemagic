@@ -48,13 +48,13 @@ joints:
       position: P1
       orientation:
         method: euler
-        euler_angles: [0.0, 0.0, 0.0]
+        euler_angles: [0.0, 90.0, 0.0]
     j:
       body_id: 1
       position: P1
       orientation:
         method: euler
-        euler_angles: [0.0, 0.0, 0.0]
+        euler_angles: [0.0, 90.0, 0.0]
 
 # ---------------
 # --- MOTIONS ---
