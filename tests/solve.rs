@@ -172,8 +172,8 @@ fn solves_time_dependent_closed_loop_problem() {
 }
 
 #[test]
-fn solves_mixed_four_bar_closed_loop() {
-    let problem = prepared(include_str!("fixtures/mixed_four_bar_closed_loop.yaml"));
+fn solves_four_bar_linkage_closed_loop() {
+    let problem = prepared(include_str!("fixtures/four_bar_linkage.yaml"));
 
     let poses = solve(&problem).unwrap();
 
