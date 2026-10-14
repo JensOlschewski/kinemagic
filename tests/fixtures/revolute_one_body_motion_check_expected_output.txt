@@ -1,0 +1,8 @@
+valid: examples/revolute_one_body_motion.yaml
+bodies               1 (+ ground)
+joints               1 (revolute: 1)
+primary coordinates  1 (free: 0, prescribed: 1)
+motions              1
+solver               t=0..4, step 0.1 (41 steps)
+topology             open tree
+mobility: determined

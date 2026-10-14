@@ -16,7 +16,8 @@ use closure::newton::solve_closed_loop;
 
 pub use crate::model::mechanism::joint::geometry::child_pose;
 pub use crate::solve::closure::analysis::{
-    ClosureJacobian, JacobianError, analyze_closure_jacobian_at,
+    ClosureJacobian, JacobianError, Mobility, MobilityError, analyze_closure_jacobian_at,
+    mobility_at,
 };
 pub use crate::solve::closure::{
     ResidualError, closure_jacobian_for_configuration_at, closure_orientation_residual_rates,

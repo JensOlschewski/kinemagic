@@ -56,6 +56,73 @@ impl Topology {
     pub fn closure_joint_ids(&self) -> &[JointId] {
         &self.closure_joint_ids
     }
+
+    /// Returns the tree-path joints that close into a loop with
+    /// `closure_joint_id`, in deterministic order, closure joint last.
+    ///
+    /// The loop is the closure joint's two bodies plus the tree path
+    /// between them: from one body up to their lowest common ancestor,
+    /// then down to the other body.
+    pub fn loop_joint_ids(&self, mechanism: &Mechanism, closure_joint_id: JointId) -> Vec<JointId> {
+        let closure_joint = mechanism
+            .joints()
+            .get(closure_joint_id)
+            .expect("topology references a mechanism joint");
+        let body_i = closure_joint.i_marker().body_id();
+        let body_j = closure_joint.j_marker().body_id();
+
+        let parents: BTreeMap<BodyId, (BodyId, JointId)> = self
+            .tree
+            .tree_edges
+            .iter()
+            .map(|edge| {
+                (
+                    edge.child_body_id(),
+                    (edge.parent_body_id(), edge.joint_id()),
+                )
+            })
+            .collect();
+
+        let (ancestors_i, edges_i) = path_to_ground(&parents, body_i);
+        let (ancestors_j, edges_j) = path_to_ground(&parents, body_j);
+        let ancestors_j_set: BTreeSet<_> = ancestors_j.iter().copied().collect();
+
+        let lca_index_i = ancestors_i
+            .iter()
+            .position(|body| ancestors_j_set.contains(body))
+            .expect("tree connects both closure-joint bodies to ground");
+        let lca = ancestors_i[lca_index_i];
+        let lca_index_j = ancestors_j
+            .iter()
+            .position(|body| *body == lca)
+            .expect("lowest common ancestor is on both paths to ground");
+
+        let mut joint_ids = edges_i[..lca_index_i].to_vec();
+        joint_ids.extend(edges_j[..lca_index_j].iter().rev());
+        joint_ids.push(closure_joint_id);
+        joint_ids
+    }
+}
+
+/// Walks tree-edge parent links from `body` up to ground.
+///
+/// Returns the visited bodies (`body` first, ground last) and the joint
+/// connecting each consecutive pair.
+fn path_to_ground(
+    parents: &BTreeMap<BodyId, (BodyId, JointId)>,
+    body: BodyId,
+) -> (Vec<BodyId>, Vec<JointId>) {
+    let mut bodies = vec![body];
+    let mut joints = Vec::new();
+    let mut current = body;
+
+    while let Some(&(parent, joint_id)) = parents.get(&current) {
+        joints.push(joint_id);
+        bodies.push(parent);
+        current = parent;
+    }
+
+    (bodies, joints)
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -394,6 +461,33 @@ mod tests {
         );
 
         assert_eq!(topology.closure_joint_ids(), &[JointId::new(2)]);
+    }
+
+    #[test]
+    fn loop_joint_ids_walks_tree_path_to_closure_with_closure_joint_last() {
+        // Four-bar linkage: ground -J1- B1 -J2- B2 -J3- B3 -J4- ground.
+        // J1-J3 form the spanning tree; J4 closes the loop back to ground.
+        let mechanism = mechanism(
+            &[1, 2, 3],
+            vec![
+                joint(1, 0, 1),
+                joint(2, 1, 2),
+                joint(3, 2, 3),
+                joint(4, 3, 0),
+            ],
+        );
+        let topology = Topology::build(&mechanism).unwrap();
+
+        assert_eq!(topology.closure_joint_ids(), &[JointId::new(4)]);
+        assert_eq!(
+            topology.loop_joint_ids(&mechanism, JointId::new(4)),
+            vec![
+                JointId::new(3),
+                JointId::new(2),
+                JointId::new(1),
+                JointId::new(4),
+            ]
+        );
     }
 
     #[test]

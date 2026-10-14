@@ -9,6 +9,9 @@ const DOCUMENTED_EXAMPLE: &str = "examples/revolute_one_body_motion.yaml";
 const CLOSED_LOOP_EXAMPLE: &str = "tests/fixtures/spherical_one_body_closed_loop.yaml";
 const TIME_MOTION: &str = "tests/fixtures/spherical_one_body_time_motion.yaml";
 const REVOLUTE_MOTION: &str = "tests/fixtures/revolute_one_body_motion.yaml";
+const UNDERDETERMINED_CLOSED_LOOP: &str =
+    "tests/fixtures/spherical_closed_loop_underdetermined.yaml";
+const INCOMPATIBLE_CLOSED_LOOP: &str = "tests/fixtures/closed_loop_incompatible.yaml";
 
 const EXPECTED_ONE_BODY: &str =
     include_str!("fixtures/spherical_one_body_parse_expected_output.txt");
@@ -19,24 +22,54 @@ const EXPECTED_CLOSED_LOOP: &str =
 const EXPECTED_REVOLUTE: &str =
     include_str!("fixtures/revolute_one_body_motion_expected_output.txt");
 
+const EXPECTED_CHECK_ONE_BODY: &str =
+    include_str!("fixtures/spherical_one_body_parse_check_expected_output.txt");
+const EXPECTED_CHECK_TWO_BODY: &str =
+    include_str!("fixtures/spherical_two_body_motion_check_expected_output.txt");
+const EXPECTED_CHECK_DOCUMENTED_EXAMPLE: &str =
+    include_str!("fixtures/revolute_one_body_motion_check_expected_output.txt");
+const EXPECTED_CHECK_CLOSED_LOOP: &str =
+    include_str!("fixtures/spherical_one_body_closed_loop_check_expected_output.txt");
+const EXPECTED_CHECK_UNDERDETERMINED_CLOSED_LOOP: &str =
+    include_str!("fixtures/spherical_closed_loop_underdetermined_check_expected_output.txt");
+
 #[test]
 fn check_accepts_valid_no_motion_problem() {
-    assert_check_succeeds(VALID_NO_MOTION);
+    assert_check_succeeds(VALID_NO_MOTION, EXPECTED_CHECK_ONE_BODY);
 }
 
 #[test]
 fn check_accepts_valid_motion_problem() {
-    assert_check_succeeds(VALID_MOTION);
+    assert_check_succeeds(VALID_MOTION, EXPECTED_CHECK_TWO_BODY);
 }
 
 #[test]
 fn check_accepts_valid_example_motion_problem() {
-    assert_check_succeeds(DOCUMENTED_EXAMPLE);
+    assert_check_succeeds(DOCUMENTED_EXAMPLE, EXPECTED_CHECK_DOCUMENTED_EXAMPLE);
 }
 
 #[test]
 fn check_accepts_valid_closed_loop_problem() {
-    assert_check_succeeds(CLOSED_LOOP_EXAMPLE);
+    assert_check_succeeds(CLOSED_LOOP_EXAMPLE, EXPECTED_CHECK_CLOSED_LOOP);
+}
+
+#[test]
+fn check_reports_underdetermined_closed_loop_mobility() {
+    assert_check_succeeds(
+        UNDERDETERMINED_CLOSED_LOOP,
+        EXPECTED_CHECK_UNDERDETERMINED_CLOSED_LOOP,
+    );
+}
+
+#[test]
+fn check_reports_incompatible_closed_loop_with_offending_joint() {
+    let output = run("check", INCOMPATIBLE_CLOSED_LOOP);
+
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("JointId(4)"));
+    assert!(stderr.contains("does not close"));
 }
 
 #[test]
@@ -208,14 +241,11 @@ fn assert_solve_fails_without_output(path: &str) {
     assert!(stderr.contains(path));
 }
 
-fn assert_check_succeeds(path: &str) {
+fn assert_check_succeeds(path: &str, expected: &str) {
     let output = run("check", path);
 
     assert!(output.status.success());
-    assert_eq!(
-        String::from_utf8(output.stdout).unwrap(),
-        format!("valid: {path}\n")
-    );
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), expected);
     assert!(output.stderr.is_empty());
 }
 

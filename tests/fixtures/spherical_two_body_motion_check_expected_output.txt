@@ -1,0 +1,8 @@
+valid: tests/fixtures/spherical_two_body_motion.yaml
+bodies               2 (+ ground)
+joints               2 (spherical: 2)
+primary coordinates  6 (free: 4, prescribed: 2)
+motions              2
+solver               t=0..0, step 1 (1 steps)
+topology             open tree
+mobility: underdetermined (mobility 4)

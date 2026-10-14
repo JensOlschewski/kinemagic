@@ -1,0 +1,9 @@
+valid: tests/fixtures/spherical_closed_loop_underdetermined.yaml
+bodies               1 (+ ground)
+joints               2 (spherical: 2)
+primary coordinates  3 (free: 3, prescribed: 0)
+motions              0
+solver               t=0..0, step 1 (1 steps)
+topology             closed loop (1 loop)
+  loop 1: joints 1 (closure 2)
+mobility: underdetermined (mobility 1)
