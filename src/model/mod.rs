@@ -152,7 +152,10 @@ pub enum ModelError {
     Topology(#[from] TopologyError),
     #[error(transparent)]
     Coordinates(#[from] JointCoordinateError),
-    #[error("open-tree model has undriven free coordinate(s): {}", format_free_coordinates(coordinates))]
+    #[error(
+        "open-tree model has undriven free coordinate(s): {}",
+        format_free_coordinates(coordinates)
+    )]
     UnderdeterminedOpenTree { coordinates: Vec<(JointId, usize)> },
 }
 

@@ -1,5 +1,5 @@
-use anyhow::Result;
 use crate::cli::CheckArgs;
+use anyhow::Result;
 
 use kinemagic::data::coordinates::GeneralizedCoordinates;
 use kinemagic::io::load_file;
