@@ -110,7 +110,7 @@ impl Joint {
 /// Joint kinematic constraint.
 ///
 /// `#[non_exhaustive]` allows future joint types. Downstream matches need `_`.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[non_exhaustive]
 pub enum JointKind {
     /// Allows unrestricted relative rotation between connected bodies.
@@ -137,6 +137,12 @@ pub struct JointId(u32);
 impl JointId {
     pub fn new(value: u32) -> Self {
         Self(value)
+    }
+}
+
+impl std::fmt::Display for JointId {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}", self.0)
     }
 }
 

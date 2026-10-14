@@ -1,0 +1,8 @@
+valid: tests/fixtures/spherical_one_body_parse.yaml
+bodies               1 (+ ground)
+joints               1 (spherical: 1)
+primary coordinates  3 (free: 3, prescribed: 0)
+motions              0
+solver               t=0..0, step 1 (1 steps)
+topology             open tree
+mobility: underdetermined (mobility 3)

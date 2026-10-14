@@ -1,0 +1,52 @@
+hardpoints:
+  P1: [0.0, 0.0, 0.0]
+  P2: [0.0, 0.0, -200.0]
+bodies:
+  B1:
+    body_id: 1
+    side: single
+    position: [0.0, 0.0, 100.0]
+    orientation:
+      method: euler
+      euler_angles: [0, 0, 0]
+    points_on_body: [P1, P2]
+# Same closed loop as spherical_one_body_closed_loop.yaml (a single body
+# pinned to ground by a spherical joint at each end), but with no motion
+# driving J1. Two spherical joints to the same body leave 1 degree of
+# freedom unconstrained: the body can still spin freely about the P1-P2
+# axis without moving either marker. Without a motion fixing one of J1's
+# rotational coordinates, that free spin shows up as mobility (free count
+# 3, closure rank 2) instead of a redundant constraint row.
+joints:
+  J1:
+    joint_id: 1
+    kind: spherical
+    role: primary
+    i:
+      body_id: 0
+      position: P1
+      orientation:
+        method: euler
+        euler_angles: [0, 0, 0]
+    j:
+      body_id: 1
+      position: P1
+      orientation:
+        method: euler
+        euler_angles: [0, 0, 0]
+  J2:
+    joint_id: 2
+    kind: spherical
+    role: secondary
+    i:
+      body_id: 1
+      position: P2
+      orientation:
+        method: euler
+        euler_angles: [0, 0, 0]
+    j:
+      body_id: 0
+      position: P2
+      orientation:
+        method: euler
+        euler_angles: [0, 0, 0]
