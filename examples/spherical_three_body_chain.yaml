@@ -112,17 +112,23 @@ motions:
     kind: joint-coordinates
     joint_id: 1
     displacement:
+      rot_x: 0
       rot_y: "10 * time"
+      rot_z: 0
   RotateJ2:
     kind: joint-coordinates
     joint_id: 2
     displacement:
+      rot_x: 0
       rot_y: "-10 * time"
+      rot_z: 0
   RotateJ3:
     kind: joint-coordinates
     joint_id: 3
     displacement:
+      rot_x: 0
       rot_y: "20 * time"
+      rot_z: 0
 
 # --------------
 # --- SOLVER ---

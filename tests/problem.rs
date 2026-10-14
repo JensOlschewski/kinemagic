@@ -60,6 +60,17 @@ fn yaml_name_order_does_not_change_prepared_edges() {
         .replace("joint_id: 1", "joint_id: 9")
         .replace("  J2:", "  AChild:")
         .replace("joint_id: 2", "joint_id: 1");
+    let stationary_motions = |joint_ids: [u32; 2]| {
+        let mut motions = String::from("\nmotions:\n");
+        for joint_id in joint_ids {
+            motions.push_str(&format!(
+                "  Hold{joint_id}:\n    kind: joint-coordinates\n    joint_id: {joint_id}\n    displacement:\n      rot_x: 0\n      rot_y: 0\n      rot_z: 0\n"
+            ));
+        }
+        motions
+    };
+    let root_first = format!("{root_first}{}", stationary_motions([9, 1]));
+    let child_first = format!("{child_first}{}", stationary_motions([9, 1]));
     let root_first = parse_yaml_str(&root_first).unwrap().into_model().unwrap();
     let child_first = parse_yaml_str(&child_first).unwrap().into_model().unwrap();
 
@@ -92,6 +103,22 @@ joints:
   J1:
     joint_id: 1
     kind: spherical
+    i:
+      body_id: 1
+      position: P1
+      orientation:
+        method: euler
+        euler_angles: [0, 0, 0]
+    j:
+      body_id: 0
+      position: P1
+      orientation:
+        method: euler
+        euler_angles: [0, 0, 0]
+  J2:
+    joint_id: 2
+    kind: spherical
+    role: secondary
     i:
       body_id: 1
       position: P1

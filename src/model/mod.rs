@@ -34,7 +34,8 @@ impl Model {
     ///
     /// # Errors
     ///
-    /// Returns [`ModelError`] if topology or joint coordinates are invalid.
+    /// Returns [`ModelError`] if topology or joint coordinates are invalid,
+    /// or if an open tree has a free coordinate with no prescribed motion.
     pub fn new(mechanism: Mechanism, motions: Motions) -> Result<Self, ModelError> {
         Self::with_solver(mechanism, motions, SolverConfig::defaults())
     }
@@ -43,7 +44,8 @@ impl Model {
     ///
     /// # Errors
     ///
-    /// Returns [`ModelError`] if topology or joint coordinates are invalid.
+    /// Returns [`ModelError`] if topology or joint coordinates are invalid,
+    /// or if an open tree has a free coordinate with no prescribed motion.
     pub fn with_solver(
         mechanism: Mechanism,
         motions: Motions,
@@ -62,7 +64,7 @@ impl Model {
                 (0..coordinate.component_count()).map(move |component| (edge.joint_id(), component))
             })
             .collect();
-        let free_primary_coordinates = topology
+        let free_primary_coordinates: Vec<(JointId, usize)> = topology
             .tree_edges()
             .iter()
             .flat_map(|edge| {
@@ -74,6 +76,12 @@ impl Model {
                     .map(move |component| (edge.joint_id(), component))
             })
             .collect();
+
+        if topology.closure_joint_ids().is_empty() && !free_primary_coordinates.is_empty() {
+            return Err(ModelError::UnderdeterminedOpenTree {
+                coordinates: free_primary_coordinates,
+            });
+        }
 
         Ok(Self {
             mechanism,
@@ -144,4 +152,79 @@ pub enum ModelError {
     Topology(#[from] TopologyError),
     #[error(transparent)]
     Coordinates(#[from] JointCoordinateError),
+    #[error(
+        "open-tree model has undriven free coordinate(s): {}",
+        format_free_coordinates(coordinates)
+    )]
+    UnderdeterminedOpenTree { coordinates: Vec<(JointId, usize)> },
+}
+
+fn format_free_coordinates(coordinates: &[(JointId, usize)]) -> String {
+    coordinates
+        .iter()
+        .map(|(joint_id, component)| format!("joint `{joint_id}` component {component}"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::io::yaml::parse_yaml_str;
+
+    #[test]
+    fn rejects_open_tree_with_partially_prescribed_spherical_motion() {
+        let yaml = include_str!("../../tests/fixtures/open_tree_underdetermined.yaml");
+
+        let error = match parse_yaml_str(yaml).unwrap().into_model() {
+            Ok(_) => panic!("expected underdetermined open tree to be rejected"),
+            Err(error) => error,
+        };
+
+        assert!(matches!(
+            error,
+            crate::io::yaml::YamlError::Derive(ModelError::UnderdeterminedOpenTree {
+                coordinates,
+            }) if coordinates == vec![(JointId::new(1), 0), (JointId::new(1), 2)]
+        ));
+    }
+
+    #[test]
+    fn rejects_open_tree_with_entirely_undriven_spherical_joint() {
+        let yaml = include_str!("../../tests/fixtures/spherical_one_body_parse.yaml");
+
+        let error = match parse_yaml_str(yaml).unwrap().into_model() {
+            Ok(_) => panic!("expected underdetermined open tree to be rejected"),
+            Err(error) => error,
+        };
+
+        assert!(matches!(
+            error,
+            crate::io::yaml::YamlError::Derive(ModelError::UnderdeterminedOpenTree {
+                coordinates,
+            }) if coordinates
+                == vec![
+                    (JointId::new(1), 0),
+                    (JointId::new(1), 1),
+                    (JointId::new(1), 2),
+                ]
+        ));
+    }
+
+    #[test]
+    fn rejects_open_tree_with_entirely_undriven_revolute_joint() {
+        let yaml = include_str!("../../tests/fixtures/revolute_one_body_parse.yaml");
+
+        let error = match parse_yaml_str(yaml).unwrap().into_model() {
+            Ok(_) => panic!("expected underdetermined open tree to be rejected"),
+            Err(error) => error,
+        };
+
+        assert!(matches!(
+            error,
+            crate::io::yaml::YamlError::Derive(ModelError::UnderdeterminedOpenTree {
+                coordinates,
+            }) if coordinates == vec![(JointId::new(1), 0)]
+        ));
+    }
 }

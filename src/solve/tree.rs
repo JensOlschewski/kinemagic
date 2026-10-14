@@ -227,6 +227,22 @@ joints:
       orientation:
         method: euler
         euler_angles: [0, 0, 0]
+  J2:
+    joint_id: 2
+    kind: spherical
+    role: secondary
+    i:
+      body_id: 1
+      position: P1
+      orientation:
+        method: euler
+        euler_angles: [0, 0, 0]
+    j:
+      body_id: 0
+      position: P1
+      orientation:
+        method: euler
+        euler_angles: [0, 0, 0]
 "#,
         )
         .unwrap()

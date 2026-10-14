@@ -82,7 +82,8 @@ mod tests {
     fn renders_complete_poses_in_body_id_order() {
         let yaml = include_str!("../../tests/fixtures/spherical_two_body_parse.yaml")
             .replace("  B1:", "  ZBody:")
-            .replace("  B2:", "  ABody:");
+            .replace("  B2:", "  ABody:")
+            + "\nmotions:\n  HoldJ1:\n    kind: joint-coordinates\n    joint_id: 1\n    displacement:\n      rot_x: 0\n      rot_y: 0\n      rot_z: 0\n  HoldJ2:\n    kind: joint-coordinates\n    joint_id: 2\n    displacement:\n      rot_x: 0\n      rot_y: 0\n      rot_z: 0\n";
         let input = parse_yaml_str(&yaml).unwrap().into_model().unwrap();
 
         assert_eq!(

@@ -55,8 +55,12 @@ motions:
     joint_id: 1
     displacement:
       rot_x: 90
+      rot_y: 0
+      rot_z: 0
   RotateJ2:
     kind: joint-coordinates
     joint_id: 2
     displacement:
+      rot_x: 0
+      rot_y: 0
       rot_z: 90

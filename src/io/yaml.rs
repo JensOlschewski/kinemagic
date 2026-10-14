@@ -641,9 +641,25 @@ mod tests {
     const VALID_REVOLUTE_ONE_BODY_PARSE_INPUT: &str =
         include_str!("../../tests/fixtures/revolute_one_body_parse.yaml");
 
+    /// Appends a fully-prescribed (stationary) joint-coordinates motion for
+    /// each given joint, so otherwise-free open-tree spherical joints
+    /// satisfy `Model::with_solver`'s underdetermined-coordinate guard.
+    fn with_stationary_spherical_motions(yaml: &str, joint_ids: &[u32]) -> String {
+        let mut motions = String::from("\nmotions:\n");
+        for joint_id in joint_ids {
+            motions.push_str(&format!(
+                "  Hold{joint_id}:\n    kind: joint-coordinates\n    joint_id: {joint_id}\n    displacement:\n      rot_x: 0\n      rot_y: 0\n      rot_z: 0\n"
+            ));
+        }
+        format!("{yaml}{motions}")
+    }
+
     #[test]
     fn converts_spherical_one_body_parse_into_model() -> Result<(), YamlError> {
-        let input = convert(VALID_ONE_BODY_PARSE_INPUT)?;
+        let input = convert(&with_stationary_spherical_motions(
+            VALID_ONE_BODY_PARSE_INPUT,
+            &[1],
+        ))?;
         let model = input.mechanism();
 
         assert_eq!(model.bodies().iter().count(), 2);
@@ -670,7 +686,10 @@ mod tests {
 
     #[test]
     fn converts_spherical_two_body_parse_into_model() -> Result<(), YamlError> {
-        let input = convert(VALID_TWO_BODY_PARSE_INPUT)?;
+        let input = convert(&with_stationary_spherical_motions(
+            VALID_TWO_BODY_PARSE_INPUT,
+            &[1, 2],
+        ))?;
 
         let model = input.mechanism();
 
@@ -709,7 +728,10 @@ mod tests {
 
     #[test]
     fn converts_revolute_one_body_parse_into_model() -> Result<(), YamlError> {
-        let input = convert(VALID_REVOLUTE_ONE_BODY_PARSE_INPUT)?;
+        let yaml = format!(
+            "{VALID_REVOLUTE_ONE_BODY_PARSE_INPUT}\nmotions:\n  Hold1:\n    kind: joint-coordinates\n    joint_id: 1\n    displacement:\n      rot_z: 0\n"
+        );
+        let input = convert(&yaml)?;
         let model = input.mechanism();
 
         let joint = model.joints().iter().next().unwrap();
@@ -735,7 +757,13 @@ mod tests {
 
     #[test]
     fn converts_missing_motions_into_empty_input() -> Result<(), YamlError> {
-        let input = convert(VALID_ONE_BODY_PARSE_INPUT)?;
+        // A closed loop (J2 closes back to ground at the same marker) keeps
+        // this open-tree-guard-exempt, so the model builds with no motions
+        // at all, which is what this test wants to exercise.
+        let yaml = format!(
+            "{VALID_ONE_BODY_PARSE_INPUT}\n  J2:\n    joint_id: 2\n    kind: spherical\n    role: secondary\n    i:\n      body_id: 1\n      position: P1\n      orientation:\n        method: euler\n        euler_angles: [0, 0, 0]\n    j:\n      body_id: 0\n      position: P1\n      orientation:\n        method: euler\n        euler_angles: [0, 0, 0]\n"
+        );
+        let input = convert(&yaml)?;
 
         assert!(input.motions().is_empty());
 
@@ -750,8 +778,12 @@ mod tests {
             None,
         );
 
+        // J2 closes the loop back to ground at the same marker, so the
+        // partially-prescribed J1 (rot_z left free) doesn't trip the
+        // open-tree underdetermined-coordinate guard: it's the free
+        // rot_z component this test wants to verify parses as `None`.
         let yaml = format!(
-            "{}\nmotions:\n  RotateJ1:\n    kind: joint-coordinates\n    joint_id: 1\n    displacement:\n      rot_x: 90.0\n      rot_y: 90.0\n",
+            "{}\n  J2:\n    joint_id: 2\n    kind: spherical\n    role: secondary\n    i:\n      body_id: 1\n      position: P1\n      orientation:\n        method: euler\n        euler_angles: [0, 0, 0]\n    j:\n      body_id: 0\n      position: P1\n      orientation:\n        method: euler\n        euler_angles: [0, 0, 0]\nmotions:\n  RotateJ1:\n    kind: joint-coordinates\n    joint_id: 1\n    displacement:\n      rot_x: 90.0\n      rot_y: 90.0\n",
             include_str!("../../tests/fixtures/spherical_one_body_parse.yaml")
         );
 
@@ -768,8 +800,11 @@ mod tests {
 
     #[test]
     fn converts_time_dependent_joint_coordinate_motion_into_input() -> Result<(), YamlError> {
+        // J2 closes the loop back to ground at the same marker, so the
+        // partially-prescribed J1 (rot_x and rot_z left free) doesn't trip
+        // the open-tree underdetermined-coordinate guard.
         let yaml = format!(
-            "{}\nmotions:\n  RotateJ1:\n    kind: joint-coordinates\n    joint_id: 1\n    displacement:\n      rot_y: \"2*time\"\n",
+            "{}\n  J2:\n    joint_id: 2\n    kind: spherical\n    role: secondary\n    i:\n      body_id: 1\n      position: P1\n      orientation:\n        method: euler\n        euler_angles: [0, 0, 0]\n    j:\n      body_id: 0\n      position: P1\n      orientation:\n        method: euler\n        euler_angles: [0, 0, 0]\nmotions:\n  RotateJ1:\n    kind: joint-coordinates\n    joint_id: 1\n    displacement:\n      rot_y: \"2*time\"\n",
             include_str!("../../tests/fixtures/spherical_one_body_parse.yaml")
         );
 
@@ -1000,6 +1035,7 @@ mod tests {
             .replace("P1: [0.0, 0.0, 0.0]", "P1: [1.0, 0.0, 0.0]")
             .replace("position: [0.0, 0.0, -100.0]", "position: [0.0, 0.0, 0.0]")
             .replacen("euler_angles: [0, 0, 0]", "euler_angles: [90, 0, 0]", 1);
+        let input = with_stationary_spherical_motions(&input, &[1]);
 
         let input = parse_yaml_str(&input)?.into_model()?;
         let model = input.mechanism();
@@ -1139,6 +1175,7 @@ mod tests {
                 ),
             };
 
+            let yaml = with_stationary_spherical_motions(&yaml, &[1]);
             let input = parse_yaml_str(&yaml)?.into_model()?;
             let actual = input.mechanism().joints().iter().next().unwrap().role();
 
@@ -1165,6 +1202,7 @@ mod tests {
     #[test]
     fn converts_inline_marker_position() -> Result<(), YamlError> {
         let valid = VALID_ONE_BODY_PARSE_INPUT.replace("position: P1", "position: [1.0, 2.0, 3.0]");
+        let valid = with_stationary_spherical_motions(&valid, &[1]);
 
         let input = parse_yaml_str(&valid)?.into_model()?;
         let model = input.mechanism();
