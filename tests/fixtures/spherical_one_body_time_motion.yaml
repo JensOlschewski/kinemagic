@@ -30,7 +30,9 @@ motions:
     kind: joint-coordinates
     joint_id: 1
     displacement:
+      rot_x: 0
       rot_y: "10*time"
+      rot_z: 0
 solver:
   start_time: 0.0
   end_time: 0.2

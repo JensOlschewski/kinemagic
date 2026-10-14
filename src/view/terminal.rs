@@ -715,12 +715,11 @@ mod tests {
     use crate::io::yaml::parse_yaml_str;
 
     fn reference_frame() -> ViewFrame {
-        let input = parse_yaml_str(include_str!(
-            "../../tests/fixtures/spherical_one_body_parse.yaml"
-        ))
-        .unwrap()
-        .into_model()
-        .unwrap();
+        let yaml = format!(
+            "{}\nmotions:\n  Hold:\n    kind: joint-coordinates\n    joint_id: 1\n    displacement:\n      rot_x: 0\n      rot_y: 0\n      rot_z: 0\n",
+            include_str!("../../tests/fixtures/spherical_one_body_parse.yaml")
+        );
+        let input = parse_yaml_str(&yaml).unwrap().into_model().unwrap();
         ViewFrame::reference(Scene::from_reference(input.mechanism()))
     }
 

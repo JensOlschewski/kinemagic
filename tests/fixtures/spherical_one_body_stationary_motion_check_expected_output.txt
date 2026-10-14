@@ -1,0 +1,9 @@
+valid: tests/fixtures/spherical_one_body_stationary_motion.yaml
+
+bodies               1 (+ ground)
+joints               1 (spherical: 1)
+primary coordinates  3 (free: 0, prescribed: 3)
+motions              1
+solver               t=0..0, step 1 (1 steps)
+topology             open tree
+mobility             determined

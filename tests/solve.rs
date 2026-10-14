@@ -28,7 +28,8 @@ fn reproduces_one_body_reference_with_non_aligned_markers() {
     let yaml = include_str!("fixtures/spherical_one_body_parse.yaml")
         .replacen("euler_angles: [0, 0, 0]", "euler_angles: [20, 30, 40]", 1)
         .replacen("euler_angles: [0, 0, 0]", "euler_angles: [10, 20, 30]", 1)
-        .replacen("euler_angles: [0, 0, 0]", "euler_angles: [-20, 15, 35]", 1);
+        .replacen("euler_angles: [0, 0, 0]", "euler_angles: [-20, 15, 35]", 1)
+        + "\nmotions:\n  Hold1:\n    kind: joint-coordinates\n    joint_id: 1\n    displacement:\n      rot_x: 0\n      rot_y: 0\n      rot_z: 0\n";
     let problem = prepared(&yaml);
     let joint = problem.mechanism().joints().get(JointId::new(1)).unwrap();
 
@@ -50,7 +51,7 @@ fn solves_branching_reference_problem() {
     let yaml = include_str!("fixtures/spherical_two_body_parse.yaml").replace(
         "    i:\n      body_id: 1\n      position: P2",
         "    i:\n      body_id: 0\n      position: P2",
-    );
+    ) + "\nmotions:\n  Hold1:\n    kind: joint-coordinates\n    joint_id: 1\n    displacement:\n      rot_x: 0\n      rot_y: 0\n      rot_z: 0\n  Hold2:\n    kind: joint-coordinates\n    joint_id: 2\n    displacement:\n      rot_x: 0\n      rot_y: 0\n      rot_z: 0\n";
     let problem = prepared(&yaml);
 
     assert!(

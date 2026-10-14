@@ -1,7 +1,8 @@
 use std::process::{Command, Output};
 
-const VALID_NO_MOTION: &str = "tests/fixtures/spherical_one_body_parse.yaml";
+const VALID_STATIONARY: &str = "tests/fixtures/spherical_one_body_stationary_motion.yaml";
 const VALID_MOTION: &str = "tests/fixtures/spherical_two_body_motion.yaml";
+const UNDERDETERMINED_OPEN_TREE: &str = "tests/fixtures/open_tree_underdetermined.yaml";
 const MALFORMED: &str = "tests/fixtures/malformed.yaml";
 const NOT_SOLVE_READY: &str = "tests/fixtures/spherical_duplicate_motion.yaml";
 const MISSING: &str = "tests/fixtures/missing.yaml";
@@ -14,7 +15,7 @@ const UNDERDETERMINED_CLOSED_LOOP: &str =
 const INCOMPATIBLE_CLOSED_LOOP: &str = "tests/fixtures/closed_loop_incompatible.yaml";
 
 const EXPECTED_ONE_BODY: &str =
-    include_str!("fixtures/spherical_one_body_parse_expected_output.txt");
+    include_str!("fixtures/spherical_one_body_stationary_motion_expected_output.txt");
 const EXPECTED_TWO_BODY: &str =
     include_str!("fixtures/spherical_two_body_motion_expected_output.txt");
 const EXPECTED_CLOSED_LOOP: &str =
@@ -23,7 +24,7 @@ const EXPECTED_REVOLUTE: &str =
     include_str!("fixtures/revolute_one_body_motion_expected_output.txt");
 
 const EXPECTED_CHECK_ONE_BODY: &str =
-    include_str!("fixtures/spherical_one_body_parse_check_expected_output.txt");
+    include_str!("fixtures/spherical_one_body_stationary_motion_check_expected_output.txt");
 const EXPECTED_CHECK_TWO_BODY: &str =
     include_str!("fixtures/spherical_two_body_motion_check_expected_output.txt");
 const EXPECTED_CHECK_DOCUMENTED_EXAMPLE: &str =
@@ -34,8 +35,8 @@ const EXPECTED_CHECK_UNDERDETERMINED_CLOSED_LOOP: &str =
     include_str!("fixtures/spherical_closed_loop_underdetermined_check_expected_output.txt");
 
 #[test]
-fn check_accepts_valid_no_motion_problem() {
-    assert_check_succeeds(VALID_NO_MOTION, EXPECTED_CHECK_ONE_BODY);
+fn check_accepts_valid_stationary_problem() {
+    assert_check_succeeds(VALID_STATIONARY, EXPECTED_CHECK_ONE_BODY);
 }
 
 #[test]
@@ -83,8 +84,23 @@ fn check_rejects_not_solve_ready_problem_with_path_context() {
 }
 
 #[test]
+fn check_and_solve_reject_underdetermined_open_tree_with_offending_coordinates() {
+    for command in ["check", "solve"] {
+        let output = run(command, UNDERDETERMINED_OPEN_TREE);
+
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(stderr.contains(UNDERDETERMINED_OPEN_TREE));
+        assert!(stderr.contains("joint `1` component 0"));
+        assert!(stderr.contains("joint `1` component 2"));
+    }
+}
+
+#[test]
 fn solve_renders_one_body_reference_problem() {
-    let output = run("solve", VALID_NO_MOTION);
+    let output = run("solve", VALID_STATIONARY);
 
     assert!(output.status.success());
     assert!(output.stderr.is_empty());
@@ -160,7 +176,7 @@ fn solve_renders_closed_loop_progress_to_stderr() {
 
 #[test]
 fn view_requires_an_interactive_terminal() {
-    let output = run_with_args("check", VALID_NO_MOTION, &["--view"]);
+    let output = run_with_args("check", VALID_STATIONARY, &["--view"]);
 
     assert!(!output.status.success());
     assert!(output.stdout.is_empty());
@@ -173,7 +189,7 @@ fn view_requires_an_interactive_terminal() {
 
 #[test]
 fn solve_view_requires_an_interactive_terminal_without_pose_output() {
-    let output = run_with_args("solve", VALID_NO_MOTION, &["--view"]);
+    let output = run_with_args("solve", VALID_STATIONARY, &["--view"]);
 
     assert!(!output.status.success());
     assert!(output.stdout.is_empty());
@@ -186,7 +202,7 @@ fn solve_view_requires_an_interactive_terminal_without_pose_output() {
 
 #[test]
 fn solve_live_view_requires_an_interactive_terminal_without_pose_output() {
-    let output = run_with_args("solve", VALID_NO_MOTION, &["--view=live"]);
+    let output = run_with_args("solve", VALID_STATIONARY, &["--view=live"]);
 
     assert!(!output.status.success());
     assert!(output.stdout.is_empty());
@@ -199,7 +215,7 @@ fn solve_live_view_requires_an_interactive_terminal_without_pose_output() {
 
 #[test]
 fn solve_rejects_view_with_progress() {
-    let output = run_with_args("solve", VALID_NO_MOTION, &["--view", "--progress"]);
+    let output = run_with_args("solve", VALID_STATIONARY, &["--view", "--progress"]);
 
     assert!(!output.status.success());
     assert!(

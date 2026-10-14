@@ -512,7 +512,10 @@ mod tests {
 
     #[test]
     fn builds_reference_geometry_from_body_points_and_joint_markers() {
-        let input = parse_yaml_str(TWO_BODY).unwrap().into_model().unwrap();
+        let yaml = format!(
+            "{TWO_BODY}\nmotions:\n  HoldJ1:\n    kind: joint-coordinates\n    joint_id: 1\n    displacement:\n      rot_x: 0\n      rot_y: 0\n      rot_z: 0\n  HoldJ2:\n    kind: joint-coordinates\n    joint_id: 2\n    displacement:\n      rot_x: 0\n      rot_y: 0\n      rot_z: 0\n"
+        );
+        let input = parse_yaml_str(&yaml).unwrap().into_model().unwrap();
         let scene = Scene::from_reference(input.mechanism());
 
         assert_eq!(scene.bodies().len(), 2);
@@ -583,7 +586,10 @@ mod tests {
 
     #[test]
     fn builds_solved_geometry_from_body_poses() {
-        let input = parse_yaml_str(ONE_BODY).unwrap().into_model().unwrap();
+        let yaml = format!(
+            "{ONE_BODY}\nmotions:\n  Hold:\n    kind: joint-coordinates\n    joint_id: 1\n    displacement:\n      rot_x: 0\n      rot_y: 0\n      rot_z: 0\n"
+        );
+        let input = parse_yaml_str(&yaml).unwrap().into_model().unwrap();
         let problem = input;
         let poses = solve_at(&problem, 0.0).unwrap();
         let scene = Scene::from_body_poses(problem.mechanism(), &poses).unwrap();

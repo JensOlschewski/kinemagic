@@ -164,13 +164,23 @@ mod tests {
     }
 
     #[test]
-    fn check_accepts_valid_no_motion_file() {
+    fn check_accepts_valid_stationary_file() {
         let result = check::run(CheckArgs {
-            input: "tests/fixtures/spherical_one_body_parse.yaml".into(),
+            input: "tests/fixtures/spherical_one_body_stationary_motion.yaml".into(),
             view: false,
         });
 
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn check_rejects_underdetermined_open_tree_file() {
+        let result = check::run(CheckArgs {
+            input: "tests/fixtures/open_tree_underdetermined.yaml".into(),
+            view: false,
+        });
+
+        assert!(result.is_err());
     }
 
     #[test]
