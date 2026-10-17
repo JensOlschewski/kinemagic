@@ -8,7 +8,7 @@ use crate::solve::BodyPoses;
 
 mod terminal;
 
-pub use terminal::{LiveViewEvent, ViewFrame, ViewerError, run_live_viewer, run_viewer};
+pub use terminal::{ViewFrame, ViewerError, run_viewer};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Projection {

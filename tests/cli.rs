@@ -219,19 +219,6 @@ fn solve_view_requires_an_interactive_terminal_without_pose_output() {
 }
 
 #[test]
-fn solve_live_view_requires_an_interactive_terminal_without_pose_output() {
-    let output = run_with_args("solve", VALID_STATIONARY, &["--view=live"]);
-
-    assert!(!output.status.success());
-    assert!(output.stdout.is_empty());
-    assert!(
-        String::from_utf8(output.stderr)
-            .unwrap()
-            .contains("terminal viewer requires interactive stdin and stdout")
-    );
-}
-
-#[test]
 fn solve_rejects_view_with_progress() {
     let output = run_with_args("solve", VALID_STATIONARY, &["--view", "--progress"]);
 

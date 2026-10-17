@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::{Args, Parser, Subcommand, ValueEnum};
+use clap::{Args, Parser, Subcommand};
 
 pub mod check;
 pub mod solve;
@@ -34,22 +34,9 @@ pub struct SolveArgs {
     /// Render solve progress to stderr
     #[arg(long)]
     progress: bool,
-    /// View solved frames after solving, or stream them live
-    #[arg(
-        long,
-        value_enum,
-        num_args = 0..=1,
-        require_equals = true,
-        default_missing_value = "after",
-        conflicts_with = "progress"
-    )]
-    view: Option<SolveViewMode>,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
-pub enum SolveViewMode {
-    After,
-    Live,
+    /// View solved frames after solving
+    #[arg(long, conflicts_with = "progress")]
+    view: bool,
 }
 
 #[cfg(test)]
@@ -87,23 +74,7 @@ mod tests {
 
         assert!(matches!(
             cli.command,
-            Commands::Solve(SolveArgs {
-                view: Some(SolveViewMode::After),
-                ..
-            })
-        ));
-    }
-
-    #[test]
-    fn parses_solve_live_view_command() {
-        let cli = Cli::try_parse_from(["km", "solve", "model.yaml", "--view=live"]).unwrap();
-
-        assert!(matches!(
-            cli.command,
-            Commands::Solve(SolveArgs {
-                view: Some(SolveViewMode::Live),
-                ..
-            })
+            Commands::Solve(SolveArgs { view: true, .. })
         ));
     }
 
@@ -113,10 +84,7 @@ mod tests {
 
         assert!(matches!(
             cli.command,
-            Commands::Solve(SolveArgs {
-                view: Some(SolveViewMode::After),
-                ..
-            })
+            Commands::Solve(SolveArgs { view: true, .. })
         ));
     }
 
@@ -157,7 +125,7 @@ mod tests {
         let result = solve::run(SolveArgs {
             input: "missing.yaml".into(),
             progress: false,
-            view: None,
+            view: false,
         });
 
         assert!(result.is_err());

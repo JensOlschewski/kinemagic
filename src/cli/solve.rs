@@ -1,92 +1,45 @@
 use std::io::{self, Write};
-use std::sync::atomic::Ordering;
 
 use anyhow::Result;
 use kinemagic::io::{load_file, text::render_frames};
-use kinemagic::solve::{SequenceSolver, SolverProgress};
-use kinemagic::view::{LiveViewEvent, Scene, ViewFrame, run_live_viewer, run_viewer};
+use kinemagic::solve::SequenceSolver;
+use kinemagic::view::{Scene, ViewFrame, run_viewer};
 
-use crate::cli::{SolveArgs, SolveViewMode};
+const PROGRESS_INTERVAL: usize = 20;
+
+use crate::cli::SolveArgs;
 
 pub fn run(args: SolveArgs) -> Result<()> {
     let problem = load_file(&args.input)?;
-
     let times = problem.solver().times().collect::<Vec<_>>();
-
-    if args.view == Some(SolveViewMode::Live) {
-        let reference = ViewFrame::reference(Scene::from_reference(problem.mechanism()));
-        let total_frames = times.len();
-        return run_live_viewer(reference, total_frames, move |updates, cancelled| {
-            let mut solver = SequenceSolver::new(&problem);
-
-            for (frame_index, time) in times.into_iter().enumerate() {
-                if cancelled.load(Ordering::Relaxed) {
-                    return Ok(());
-                }
-                if updates
-                    .send(LiveViewEvent::FrameStarted {
-                        index: frame_index + 1,
-                        total: total_frames,
-                        time,
-                    })
-                    .is_err()
-                {
-                    return Ok(());
-                }
-
-                let poses = solver
-                    .solve_at_with_progress(time, |progress| {
-                        let iteration = match progress {
-                            SolverProgress::Residual { iteration, .. }
-                            | SolverProgress::StepAccepted { iteration, .. } => iteration,
-                            SolverProgress::Converged { iterations, .. } => iterations,
-                            SolverProgress::Failed => return,
-                        };
-                        let _ = updates.send(LiveViewEvent::Progress { iteration });
-                    })
-                    .map_err(|error| {
-                        format!(
-                            "failed to solve frame {} at t={time}: {error}",
-                            frame_index + 1
-                        )
-                    })?;
-                let frame = ViewFrame::solved(
-                    time,
-                    Scene::from_body_poses(problem.mechanism(), &poses)
-                        .map_err(|error| format!("failed to build solved scene: {error}"))?,
-                );
-                if updates.send(LiveViewEvent::FrameSolved(frame)).is_err() {
-                    return Ok(());
-                }
-            }
-
-            Ok(())
-        })
-        .map_err(Into::into);
-    }
 
     let mut frames = Vec::new();
     let mut solver = SequenceSolver::new(&problem);
     let mut stderr = io::stderr().lock();
 
-    if args.progress {
-        render_progress_header(&mut stderr);
-    }
-
     for (frame_index, time) in times.iter().copied().enumerate() {
-        if args.progress
-            && (frame_index == 0
-                || (frame_index + 1).is_multiple_of(20)
-                || frame_index + 1 == times.len())
-        {
-            render_progress_step(&mut stderr, frame_index + 1, times.len(), time);
+        let step = frame_index + 1;
+
+        // render progress to stderr
+        if args.progress {
+            if step == 1 {
+                render_progress_header(&mut stderr);
+            }
+
+            if step == 1 || step.is_multiple_of(PROGRESS_INTERVAL) || step == times.len() {
+                render_progress_step(&mut stderr, step, times.len(), time);
+            }
         }
 
+        // solve the frame
         let poses = solver.solve_at(time)?;
+
+        // store the frame
         frames.push((time, poses));
     }
 
-    if args.view == Some(SolveViewMode::After) {
+    if args.view {
+        // render the frames to ratatui
         let view_frames = frames
             .iter()
             .map(|(time, poses)| {
@@ -94,8 +47,10 @@ pub fn run(args: SolveArgs) -> Result<()> {
                 Ok(ViewFrame::solved(*time, scene))
             })
             .collect::<Result<Vec<_>>>()?;
+
         run_viewer(view_frames)?;
     } else {
+        // render the frames to stdout
         let output = render_frames(&frames);
         io::stdout().lock().write_all(output.as_bytes())?;
     }
