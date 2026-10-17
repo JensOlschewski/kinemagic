@@ -32,17 +32,6 @@ jobs:
       - name: Run Clippy Linter
         run: cargo clippy --all-targets --locked -- -D warnings
 
-      - name: TEMP Dump four-bar fixture
-        run: |
-          cargo build --locked
-          ./target/debug/km solve examples/four_bar_linkage.yaml > four_bar_actual.txt
-
-      - name: TEMP Upload four-bar fixture
-        uses: actions/upload-artifact@v4
-        with:
-          name: four-bar-actual
-          path: four_bar_actual.txt
-
       - name: Cargo Testing
         run: cargo test --locked
 
