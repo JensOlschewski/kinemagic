@@ -11,9 +11,11 @@ pub fn run(args: CheckArgs) -> Result<()> {
     let problem = load_file(&args.input)?;
 
     if args.view {
+        // render reference frames to ratatui
         let scene = Scene::from_reference(problem.mechanism());
         run_viewer(vec![ViewFrame::reference(scene)])?;
     } else {
+        // give report
         let report = ModelReport::build(&problem);
         let configuration = GeneralizedCoordinates::new(problem.coordinate_layout());
         let mobility = mobility_at(&problem, &configuration, 0.0)?;

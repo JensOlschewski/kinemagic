@@ -70,7 +70,7 @@ impl<'a> SequenceSolver<'a> {
     /// Returns an error if `time` is not finite or the closed-loop solve fails.
     /// A failed solve leaves the stored solution unchanged.
     pub fn solve_at(&mut self, time: f64) -> Result<BodyPoses, SolverError> {
-        // Reuse progress-capable implementation without reporting events.
+        // Reuse progress-capable solve without reporting events.
         self.solve_at_with_progress(time, |_| {})
     }
 

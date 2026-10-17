@@ -22,13 +22,16 @@ pub(crate) fn solve_closed_loop(
 ) -> Result<BodyPoses, SolverError> {
     for iteration in 0..CLOSED_LOOP_MAX_ITERATIONS {
         let (poses, residuals, residual_norm) = evaluate(problem, candidates, time);
+
         if !residual_norm.is_finite() {
             return Err(SolverError::NonFiniteResidual);
         }
+
         progress(SolverProgress::Residual {
             iteration: iteration + 1,
             residual_norm,
         });
+
         if residual_norm <= CLOSED_LOOP_RESIDUAL_TOLERANCE {
             progress(SolverProgress::Converged {
                 iterations: iteration,
@@ -36,8 +39,10 @@ pub(crate) fn solve_closed_loop(
             });
             return Ok(poses);
         }
+
         let analysis = analyze_closure_jacobian_at(problem, candidates, time)?;
         let free_coordinate_count = problem.free_primary_coordinates().len();
+
         if !continuation && free_coordinate_count > analysis.selected_columns().len() {
             return Err(SolverError::UnderDetermined {
                 free_coordinates: free_coordinate_count,
@@ -45,7 +50,9 @@ pub(crate) fn solve_closed_loop(
                 remaining_dofs: free_coordinate_count - analysis.selected_columns().len(),
             });
         }
+
         let selected = analysis.selected_columns();
+
         if selected.is_empty() {
             return Err(SolverError::NoIndependentCoordinates);
         }
@@ -112,6 +119,7 @@ fn evaluate(
 ) -> (BodyPoses, DVector<f64>, f64) {
     let poses = tree_poses_for_configuration_at(problem, candidates, time)
         .expect("solver configuration matches problem layout");
+
     let residuals = DVector::from_vec(closure_residuals_at(problem, &poses, time));
     let norm = residuals.norm();
     (poses, residuals, norm)

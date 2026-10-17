@@ -20,3 +20,9 @@ Set TypingSpeed 0ms
 Type "4++l"
 Sleep 5
 Type "q"
+Set TypingSpeed 50ms
+Type "km solve examples/four_bar_linkage.yaml --view"
+Enter
+Set TypingSpeed 0ms
+Type "++++l"
+Sleep 5

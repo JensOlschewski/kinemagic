@@ -15,26 +15,25 @@ km solve examples/revolute_one_body_motion.yaml --view
 
 Examples:
 
-- [2D one-body motion](examples/revolute_one_body_motion.yaml)
 - [2D three-body chain](examples/spherical_three_body_chain.yaml)
 - [3D spherical plate](examples/spherical_plate_3d_motion.yaml)
-- [Four-bar closed loop](examples/four_bar_linkage.yaml)
+- [Revolute hinge motion](examples/revolute_one_body_motion.yaml)
+- [Four-bar closed loop (revolute + spherical)](examples/four_bar_linkage.yaml)
 
 ![Animated terminal viewer](docs/assets/viewer.gif)
 
+Currently supports:
 
-M1 currently supports:
-
-- spherical joints
+- spherical and revolute joints
 - ground-rooted open trees and closed loops
 - Euler Z-X-Z orientations in degrees
 - time-dependent joint-coordinate motions
-- terminal reference, after-solve, and live views
+- terminal reference and after-solve views
 
 ## Output
 
 `km solve` writes solved body poses to stdout. Use `--view` for after-solve
-playback or `--view=live` to view frames as they solve.
+playback.
 
 ## Development
 
