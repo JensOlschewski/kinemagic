@@ -1,0 +1,10 @@
+valid: examples/four_bar_linkage.yaml
+
+bodies               3 (+ ground)
+joints               4 (spherical: 1, revolute: 3)
+primary coordinates  5 (free: 4, prescribed: 1)
+motions              1
+solver               t=0..9, step 0.1 (91 steps)
+topology             closed loop (1 loop)
+  loop 1: joints 3, 2, 1 (closure 4)
+mobility             overdetermined (redundant 1)

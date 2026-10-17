@@ -13,6 +13,7 @@ const REVOLUTE_MOTION: &str = "tests/fixtures/revolute_one_body_motion.yaml";
 const UNDERDETERMINED_CLOSED_LOOP: &str =
     "tests/fixtures/spherical_closed_loop_underdetermined.yaml";
 const INCOMPATIBLE_CLOSED_LOOP: &str = "tests/fixtures/closed_loop_incompatible.yaml";
+const FOUR_BAR_EXAMPLE: &str = "examples/four_bar_linkage.yaml";
 
 const EXPECTED_ONE_BODY: &str =
     include_str!("fixtures/spherical_one_body_stationary_motion_expected_output.txt");
@@ -33,6 +34,8 @@ const EXPECTED_CHECK_CLOSED_LOOP: &str =
     include_str!("fixtures/spherical_one_body_closed_loop_check_expected_output.txt");
 const EXPECTED_CHECK_UNDERDETERMINED_CLOSED_LOOP: &str =
     include_str!("fixtures/spherical_closed_loop_underdetermined_check_expected_output.txt");
+const EXPECTED_CHECK_FOUR_BAR: &str =
+    include_str!("fixtures/four_bar_linkage_check_expected_output.txt");
 
 #[test]
 fn check_accepts_valid_stationary_problem() {
@@ -52,6 +55,11 @@ fn check_accepts_valid_example_motion_problem() {
 #[test]
 fn check_accepts_valid_closed_loop_problem() {
     assert_check_succeeds(CLOSED_LOOP_EXAMPLE, EXPECTED_CHECK_CLOSED_LOOP);
+}
+
+#[test]
+fn check_accepts_four_bar_linkage_example() {
+    assert_check_succeeds(FOUR_BAR_EXAMPLE, EXPECTED_CHECK_FOUR_BAR);
 }
 
 #[test]
@@ -190,19 +198,6 @@ fn view_requires_an_interactive_terminal() {
 #[test]
 fn solve_view_requires_an_interactive_terminal_without_pose_output() {
     let output = run_with_args("solve", VALID_STATIONARY, &["--view"]);
-
-    assert!(!output.status.success());
-    assert!(output.stdout.is_empty());
-    assert!(
-        String::from_utf8(output.stderr)
-            .unwrap()
-            .contains("terminal viewer requires interactive stdin and stdout")
-    );
-}
-
-#[test]
-fn solve_live_view_requires_an_interactive_terminal_without_pose_output() {
-    let output = run_with_args("solve", VALID_STATIONARY, &["--view=live"]);
 
     assert!(!output.status.success());
     assert!(output.stdout.is_empty());

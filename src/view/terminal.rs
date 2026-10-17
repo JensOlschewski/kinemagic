@@ -1,8 +1,4 @@
 use std::io::{self, IsTerminal};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Receiver, TryRecvError};
-use std::thread;
 use std::time::{Duration, Instant};
 
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
@@ -50,21 +46,6 @@ impl ViewFrame {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub enum LiveViewEvent {
-    FrameStarted {
-        index: usize,
-        total: usize,
-        time: f64,
-    },
-    Progress {
-        iteration: usize,
-    },
-    FrameSolved(ViewFrame),
-    Finished,
-    Failed,
-}
-
 pub fn run_viewer(frames: Vec<ViewFrame>) -> Result<(), ViewerError> {
     let mut app = ViewerApp::new(frames)?;
 
@@ -73,53 +54,10 @@ pub fn run_viewer(frames: Vec<ViewFrame>) -> Result<(), ViewerError> {
     }
 
     let mut terminal = ratatui::try_init().map_err(ViewerError::Io)?;
-    let result = run_app(&mut terminal, &mut app, None).map_err(ViewerError::Io);
+    let result = run_app(&mut terminal, &mut app).map_err(ViewerError::Io);
     let restore_result = ratatui::try_restore().map_err(ViewerError::Io);
 
     result.and(restore_result)
-}
-
-pub fn run_live_viewer<F>(
-    reference: ViewFrame,
-    total_frames: usize,
-    solve: F,
-) -> Result<(), ViewerError>
-where
-    F: FnOnce(mpsc::Sender<LiveViewEvent>, Arc<AtomicBool>) -> Result<(), String> + Send + 'static,
-{
-    let mut app = ViewerApp::new_live(reference, total_frames)?;
-
-    if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
-        return Err(ViewerError::NotInteractive);
-    }
-
-    let mut terminal = ratatui::try_init().map_err(ViewerError::Io)?;
-    let (updates, update_receiver) = mpsc::channel();
-    let cancelled = Arc::new(AtomicBool::new(false));
-    let worker_cancelled = Arc::clone(&cancelled);
-    let worker = thread::spawn(move || {
-        let result = solve(updates.clone(), Arc::clone(&worker_cancelled));
-        let event = if result.is_ok() && !worker_cancelled.load(Ordering::Relaxed) {
-            LiveViewEvent::Finished
-        } else {
-            LiveViewEvent::Failed
-        };
-        let _ = updates.send(event);
-        result
-    });
-
-    let app_result = run_app(&mut terminal, &mut app, Some(&update_receiver));
-    cancelled.store(true, Ordering::Relaxed);
-    let worker_result = worker.join();
-    let restore_result = ratatui::try_restore();
-
-    app_result.map_err(ViewerError::Io)?;
-    restore_result.map_err(ViewerError::Io)?;
-    match worker_result {
-        Ok(Ok(())) => Ok(()),
-        Ok(Err(message)) => Err(ViewerError::Solve(message)),
-        Err(_) => Err(ViewerError::WorkerPanicked),
-    }
 }
 
 #[derive(Debug, Error)]
@@ -128,10 +66,6 @@ pub enum ViewerError {
     NotInteractive,
     #[error("terminal viewer requires at least one frame")]
     EmptyFrames,
-    #[error("live solve failed: {0}")]
-    Solve(String),
-    #[error("live solver worker panicked")]
-    WorkerPanicked,
     #[error("terminal I/O failed")]
     Io(#[source] io::Error),
 }
@@ -146,17 +80,7 @@ struct ViewerApp {
     loop_mode: LoopMode,
     playback_direction: PlaybackDirection,
     show_labels: bool,
-    live: Option<LiveState>,
     should_quit: bool,
-}
-
-struct LiveState {
-    total_frames: usize,
-    solved_frames: usize,
-    current_frame: Option<(usize, f64)>,
-    iteration: Option<usize>,
-    follow_latest: bool,
-    finished: bool,
 }
 
 struct Viewports {
@@ -225,26 +149,8 @@ impl ViewerApp {
             loop_mode: LoopMode::Restart,
             playback_direction: PlaybackDirection::Forward,
             show_labels: false,
-            live: None,
             should_quit: false,
         })
-    }
-
-    fn new_live(reference: ViewFrame, total_frames: usize) -> Result<Self, ViewerError> {
-        if total_frames == 0 {
-            return Err(ViewerError::EmptyFrames);
-        }
-
-        let mut app = Self::new(vec![reference])?;
-        app.live = Some(LiveState {
-            total_frames,
-            solved_frames: 0,
-            current_frame: None,
-            iteration: None,
-            follow_latest: true,
-            finished: false,
-        });
-        Ok(app)
     }
 
     fn render(&self, frame: &mut Frame<'_>) {
@@ -331,22 +237,10 @@ impl ViewerApp {
             loop_mode_name(self.loop_mode),
         );
 
-        let controls = if self.is_solving() {
-            [
-                " Space follow   ←/→ inspect   End latest   f/F fit   v labels",
-                " 1–4 view   q cancel",
-            ]
-        } else {
-            [
-                " Space pause   ←/→ step   +/- speed   l loop   v labels",
-                " f/F fit       1–4 view   q quit",
-            ]
-        };
-
         Paragraph::new(vec![
             TextLine::from(status),
-            TextLine::from(controls[0]),
-            TextLine::from(controls[1]),
+            TextLine::from(" Space pause   ←/→ step   +/- speed   l loop   v labels"),
+            TextLine::from(" f/F fit       1–4 view   q quit"),
         ])
     }
 
@@ -368,24 +262,10 @@ impl ViewerApp {
 
         match key.code {
             KeyCode::Char('q') | KeyCode::Esc => self.should_quit = true,
-            KeyCode::End if self.live.is_some() => {
-                let solved_frames = self.live.as_ref().map_or(0, |live| live.solved_frames);
-                if let Some(live) = &mut self.live {
-                    live.follow_latest = true;
-                }
-                if solved_frames > 0 {
-                    self.frame_index = solved_frames - 1;
-                }
-            }
 
             KeyCode::Char('f') => self.fit_current_frame(),
             KeyCode::Char('F') => self.fit_all_frames(),
             KeyCode::Char('v') => self.show_labels = !self.show_labels,
-            KeyCode::Char(' ') if self.is_solving() => {
-                if let Some(live) = &mut self.live {
-                    live.follow_latest = !live.follow_latest;
-                }
-            }
             KeyCode::Char(' ') if self.frames.len() > 1 => {
                 if !self.playing
                     && self.loop_mode == LoopMode::Once
@@ -398,24 +278,14 @@ impl ViewerApp {
             }
             KeyCode::Left => {
                 self.playing = false;
-                if self.is_solving() {
-                    if let Some(live) = &mut self.live {
-                        live.follow_latest = false;
-                    }
-                    self.frame_index = self.frame_index.saturating_sub(1);
-                } else {
-                    self.frame_index = self
-                        .frame_index
-                        .checked_sub(1)
-                        .unwrap_or(self.frames.len() - 1);
-                }
+                self.frame_index = self
+                    .frame_index
+                    .checked_sub(1)
+                    .unwrap_or(self.frames.len() - 1);
             }
 
             KeyCode::Right => {
                 self.playing = false;
-                if let Some(live) = &mut self.live {
-                    live.follow_latest = false;
-                }
                 self.advance_frame();
             }
             KeyCode::Char('1') => self.projection = Projection::Xy,
@@ -447,7 +317,7 @@ impl ViewerApp {
     }
 
     fn tick(&mut self) {
-        if !self.playing || self.is_solving() {
+        if !self.playing {
             return;
         }
 
@@ -498,29 +368,7 @@ impl ViewerApp {
         self.viewports.set(self.projection, bounds);
     }
 
-    fn is_solving(&self) -> bool {
-        self.live.as_ref().is_some_and(|live| !live.finished)
-    }
-
     fn playback_status(&self) -> String {
-        if let Some(live) = &self.live
-            && !live.finished
-        {
-            let frame = live.current_frame.map_or_else(
-                || "starting".to_owned(),
-                |(index, time)| format!("solving {index}/{} t={time:.3}", live.total_frames),
-            );
-            let iteration = live
-                .iteration
-                .map_or_else(String::new, |iteration| format!(" iter={iteration}"));
-            let following = if live.follow_latest {
-                "following"
-            } else {
-                "inspecting"
-            };
-            return format!("{frame}{iteration} {following}");
-        }
-
         if self.playing {
             "playing".to_owned()
         } else {
@@ -529,51 +377,7 @@ impl ViewerApp {
     }
 
     fn frame_counts(&self) -> (usize, usize) {
-        self.live
-            .as_ref()
-            .map_or((self.frame_index + 1, self.frames.len()), |live| {
-                (live.solved_frames, live.total_frames)
-            })
-    }
-
-    fn apply_live_event(&mut self, event: LiveViewEvent) {
-        match event {
-            LiveViewEvent::FrameStarted { index, total, time } => {
-                if let Some(live) = &mut self.live {
-                    live.total_frames = total;
-                    live.current_frame = Some((index, time));
-                    live.iteration = None;
-                }
-            }
-            LiveViewEvent::Progress { iteration } => {
-                if let Some(live) = &mut self.live {
-                    live.iteration = Some(iteration);
-                }
-            }
-            LiveViewEvent::FrameSolved(frame) => {
-                let Some(live) = &mut self.live else {
-                    return;
-                };
-                if live.solved_frames == 0 {
-                    self.frames[0] = frame;
-                } else {
-                    self.frames.push(frame);
-                }
-                live.solved_frames += 1;
-                if live.follow_latest {
-                    self.frame_index = live.solved_frames - 1;
-                }
-            }
-            LiveViewEvent::Finished => {
-                if let Some(live) = &mut self.live {
-                    live.finished = true;
-                    live.current_frame = None;
-                    live.iteration = None;
-                }
-                self.playing = false;
-            }
-            LiveViewEvent::Failed => self.should_quit = true,
-        }
+        (self.frame_index + 1, self.frames.len())
     }
 }
 
@@ -583,28 +387,10 @@ fn bounds_for_frames(frames: &[ViewFrame], projection: Projection) -> ProjectedB
         .padded(BOUNDS_PADDING)
 }
 
-fn run_app(
-    terminal: &mut ratatui::DefaultTerminal,
-    app: &mut ViewerApp,
-    updates: Option<&Receiver<LiveViewEvent>>,
-) -> io::Result<()> {
+fn run_app(terminal: &mut ratatui::DefaultTerminal, app: &mut ViewerApp) -> io::Result<()> {
     let mut last_tick = Instant::now();
 
     while !app.should_quit {
-        if let Some(updates) = updates {
-            loop {
-                match updates.try_recv() {
-                    Ok(event) => app.apply_live_event(event),
-                    Err(TryRecvError::Empty) => break,
-                    Err(TryRecvError::Disconnected) => {
-                        if app.is_solving() {
-                            app.should_quit = true;
-                        }
-                        break;
-                    }
-                }
-            }
-        }
         terminal.draw(|frame| app.render(frame))?;
         if app.should_quit {
             break;
@@ -727,10 +513,6 @@ mod tests {
     fn rejects_empty_frame_list() {
         assert!(matches!(
             ViewerApp::new(vec![]),
-            Err(ViewerError::EmptyFrames)
-        ));
-        assert!(matches!(
-            ViewerApp::new_live(reference_frame(), 0),
             Err(ViewerError::EmptyFrames)
         ));
     }
@@ -946,73 +728,5 @@ mod tests {
 
         assert!(bounds.min().x <= -10.0);
         assert!(bounds.max().x >= 20.0);
-    }
-
-    #[test]
-    fn follows_live_frames_until_user_inspects_history() {
-        let mut app = ViewerApp::new_live(reference_frame(), 2).unwrap();
-        let first = ViewFrame::solved(0.0, reference_frame().scene);
-        let second = ViewFrame::solved(1.0, reference_frame().scene);
-
-        app.apply_live_event(LiveViewEvent::FrameStarted {
-            index: 1,
-            total: 2,
-            time: 0.0,
-        });
-        app.apply_live_event(LiveViewEvent::Progress { iteration: 3 });
-        app.apply_live_event(LiveViewEvent::FrameSolved(first));
-
-        assert_eq!(app.frame_counts(), (1, 2));
-        assert_eq!(app.current_frame().time(), Some(0.0));
-        assert!(app.playback_status().contains("iter=3"));
-
-        app.handle_key(KeyEvent::new(
-            KeyCode::Char(' '),
-            crossterm::event::KeyModifiers::NONE,
-        ));
-        app.apply_live_event(LiveViewEvent::FrameSolved(second));
-
-        assert_eq!(app.frame_index, 0);
-        assert_eq!(app.current_frame().time(), Some(0.0));
-
-        app.handle_key(KeyEvent::new(
-            KeyCode::End,
-            crossterm::event::KeyModifiers::NONE,
-        ));
-        assert_eq!(app.frame_index, 1);
-        assert_eq!(app.current_frame().time(), Some(1.0));
-
-        app.apply_live_event(LiveViewEvent::Finished);
-        assert!(!app.is_solving());
-        assert!(!app.playing);
-    }
-
-    #[test]
-    fn live_viewport_changes_only_when_explicitly_fitted() {
-        let mut app = ViewerApp::new_live(reference_frame(), 2).unwrap();
-        let area = Rect::new(0, 0, 80, 20);
-        let initial_bounds = app.bounds(area);
-        let mut far_frame = reference_frame();
-        far_frame.scene.bodies[0].origin = Vector3::new(1_000.0, 0.0, 0.0);
-
-        app.apply_live_event(LiveViewEvent::FrameSolved(far_frame));
-
-        assert_eq!(app.bounds(area), initial_bounds);
-
-        app.handle_key(KeyEvent::new(
-            KeyCode::Char('f'),
-            crossterm::event::KeyModifiers::NONE,
-        ));
-
-        assert!(app.bounds(area).max().x >= 1_000.0);
-    }
-
-    #[test]
-    fn exits_live_view_when_solver_fails() {
-        let mut app = ViewerApp::new_live(reference_frame(), 1).unwrap();
-
-        app.apply_live_event(LiveViewEvent::Failed);
-
-        assert!(app.should_quit);
     }
 }
