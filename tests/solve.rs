@@ -1,9 +1,7 @@
 use kinemagic::io::yaml::parse_yaml_str;
 use kinemagic::model::mechanism::{BodyId, JointId};
 use kinemagic::model::{Model, coordinates::JointCoordinate, topology::TraversalDirection};
-use kinemagic::solve::{
-    BodyPose, BodyPoses, SequenceSolver, SolverProgress, solve, solve_at, solve_at_with_progress,
-};
+use kinemagic::solve::{BodyPose, BodyPoses, SequenceSolver, solve, solve_at};
 use nalgebra::{UnitQuaternion, Vector3};
 
 const TOLERANCE: f64 = 1.0e-12;
@@ -208,29 +206,6 @@ fn sequence_solver_preserves_closed_loop_branch_through_singularity() {
         positions
             .windows(2)
             .all(|positions| (positions[1] - positions[0]).norm() < 5.0)
-    );
-}
-
-#[test]
-fn reports_closed_loop_progress() {
-    let yaml = format!(
-        "{}\n  RotateJ2:\n    kind: joint-coordinates\n    joint_id: 2\n    displacement:\n      rot_z: -90\n",
-        include_str!("fixtures/spherical_one_body_closed_loop.yaml")
-    );
-    let problem = prepared(&yaml);
-    let mut events = Vec::new();
-
-    solve_at_with_progress(&problem, 0.0, |event| events.push(event)).unwrap();
-
-    assert!(
-        events
-            .iter()
-            .any(|event| matches!(event, SolverProgress::Residual { .. }))
-    );
-    assert!(
-        events
-            .iter()
-            .any(|event| matches!(event, SolverProgress::Converged { .. }))
     );
 }
 

@@ -2,11 +2,11 @@ use nalgebra::{DMatrix, DVector};
 
 use crate::data::coordinates::GeneralizedCoordinates;
 use crate::model::Model;
+use crate::solve::SolverError;
 use crate::solve::closure::analysis::analyze_closure_jacobian_at;
 use crate::solve::closure::closure_residuals_at;
 use crate::solve::state::BodyPoses;
 use crate::solve::tree::tree_poses_for_configuration_at;
-use crate::solve::{SolverError, SolverProgress};
 
 const CLOSED_LOOP_MAX_ITERATIONS: usize = 50;
 const CLOSED_LOOP_MAX_BACKTRACKS: usize = 32;
@@ -18,7 +18,6 @@ pub(crate) fn solve_closed_loop(
     time: f64,
     candidates: &mut GeneralizedCoordinates,
     continuation: bool,
-    progress: &mut dyn FnMut(SolverProgress),
 ) -> Result<BodyPoses, SolverError> {
     for iteration in 0..CLOSED_LOOP_MAX_ITERATIONS {
         let (poses, residuals, residual_norm) = evaluate(problem, candidates, time);
@@ -27,16 +26,7 @@ pub(crate) fn solve_closed_loop(
             return Err(SolverError::NonFiniteResidual);
         }
 
-        progress(SolverProgress::Residual {
-            iteration: iteration + 1,
-            residual_norm,
-        });
-
         if residual_norm <= CLOSED_LOOP_RESIDUAL_TOLERANCE {
-            progress(SolverProgress::Converged {
-                iterations: iteration,
-                residual_norm,
-            });
             return Ok(poses);
         }
 
@@ -76,13 +66,6 @@ pub(crate) fn solve_closed_loop(
                 residual_norm,
             });
         };
-        progress(SolverProgress::StepAccepted {
-            iteration: iteration + 1,
-            residual_norm,
-            step_norm: accepted_step_norm,
-            damping_factor: accepted_step_norm / step.norm(),
-            selected_rank: analysis.rank(),
-        });
         *candidates = updated_candidates;
         if accepted_step_norm <= CLOSED_LOOP_STEP_TOLERANCE {
             let (updated_poses, _, updated_residual_norm) = evaluate(problem, candidates, time);
@@ -90,10 +73,6 @@ pub(crate) fn solve_closed_loop(
                 return Err(SolverError::NonFiniteResidual);
             }
             if updated_residual_norm <= CLOSED_LOOP_RESIDUAL_TOLERANCE {
-                progress(SolverProgress::Converged {
-                    iterations: iteration + 1,
-                    residual_norm: updated_residual_norm,
-                });
                 return Ok(updated_poses);
             }
             return Err(SolverError::NonConvergent {

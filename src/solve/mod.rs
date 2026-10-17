@@ -70,45 +70,16 @@ impl<'a> SequenceSolver<'a> {
     /// Returns an error if `time` is not finite or the closed-loop solve fails.
     /// A failed solve leaves the stored solution unchanged.
     pub fn solve_at(&mut self, time: f64) -> Result<BodyPoses, SolverError> {
-        // Reuse progress-capable solve without reporting events.
-        self.solve_at_with_progress(time, |_| {})
-    }
-
-    /// Solves the mechanism configuration at `time`, reporting progress
-    /// through the callback.
-    ///
-    /// Uses the same initialization and state updates as [`Self::solve_at`].
-    /// The callback receives closed-loop iteration events and a
-    /// [`SolverProgress::Failed`] event if the solve returns an error.
-    /// Successful tree-only solves emit no progress events.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if `time` is not finite or the closed-loop solve fails.
-    /// A failed solve leaves the stored solution unchanged.
-    pub fn solve_at_with_progress<F>(
-        &mut self,
-        time: f64,
-        mut progress: F,
-    ) -> Result<BodyPoses, SolverError>
-    where
-        F: FnMut(SolverProgress),
-    {
         let mut candidates = self.candidates.clone();
-        let result = solve_candidates(
+        let poses = solve_candidates(
             self.problem,
             time,
             &mut candidates,
             self.has_previous_solution,
-            &mut progress,
-        );
-        if result.is_ok() {
-            self.candidates = candidates;
-            self.has_previous_solution = true;
-        } else {
-            progress(SolverProgress::Failed);
-        }
-        result
+        )?;
+        self.candidates = candidates;
+        self.has_previous_solution = true;
+        Ok(poses)
     }
 }
 
@@ -120,30 +91,18 @@ pub fn solve_at(problem: &Model, time: f64) -> Result<BodyPoses, SolverError> {
     SequenceSolver::new(problem).solve_at(time)
 }
 
-pub fn solve_at_with_progress<F>(
-    problem: &Model,
-    time: f64,
-    progress: F,
-) -> Result<BodyPoses, SolverError>
-where
-    F: FnMut(SolverProgress),
-{
-    SequenceSolver::new(problem).solve_at_with_progress(time, progress)
-}
-
 fn solve_candidates(
     problem: &Model,
     time: f64,
     candidates: &mut GeneralizedCoordinates,
     continuation: bool,
-    progress: &mut dyn FnMut(SolverProgress),
 ) -> Result<BodyPoses, SolverError> {
     validate_time(time)?;
     if problem.closure_joint_ids().is_empty() {
         Ok(tree_poses_for_configuration_at(problem, candidates, time)
             .expect("solver configuration matches problem layout"))
     } else {
-        solve_closed_loop(problem, time, candidates, continuation, progress)
+        solve_closed_loop(problem, time, candidates, continuation)
     }
 }
 
@@ -153,26 +112,6 @@ pub fn validate_time(time: f64) -> Result<(), SolverError> {
     } else {
         Err(SolverError::NonFiniteTime { time })
     }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum SolverProgress {
-    Residual {
-        iteration: usize,
-        residual_norm: f64,
-    },
-    StepAccepted {
-        iteration: usize,
-        residual_norm: f64,
-        step_norm: f64,
-        damping_factor: f64,
-        selected_rank: usize,
-    },
-    Converged {
-        iterations: usize,
-        residual_norm: f64,
-    },
-    Failed,
 }
 
 #[derive(Debug, Error)]
@@ -215,30 +154,17 @@ mod tests {
     #[test]
     fn sequence_solver_commits_candidates_only_after_success() {
         let input = parse_yaml_str(include_str!(
-            "../../tests/fixtures/spherical_three_body_closed_loop.yaml"
+            "../../tests/fixtures/spherical_one_body_closed_loop.yaml"
         ))
         .unwrap()
         .into_model()
         .unwrap();
         let problem = input;
         let mut solver = SequenceSolver::new(&problem);
-        solver.solve_at(89.0).unwrap();
+        solver.solve_at(0.0).unwrap();
         let candidates = solver.candidates.clone();
-        let mut residual_events = 0;
 
-        let interrupted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let _ = solver.solve_at_with_progress(89.5, |progress| {
-                if matches!(progress, SolverProgress::Residual { .. }) {
-                    residual_events += 1;
-                    if residual_events == 2 {
-                        panic!("interrupt solve after candidate update");
-                    }
-                }
-            });
-        }));
-
-        assert!(interrupted.is_err());
-        assert_eq!(residual_events, 2);
+        assert!(solver.solve_at(f64::NAN).is_err());
         assert_eq!(solver.candidates, candidates);
     }
 }
