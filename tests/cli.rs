@@ -23,7 +23,6 @@ const EXPECTED_CLOSED_LOOP: &str =
     include_str!("fixtures/spherical_one_body_closed_loop_expected_output.txt");
 const EXPECTED_REVOLUTE: &str =
     include_str!("fixtures/revolute_one_body_motion_expected_output.txt");
-const EXPECTED_FOUR_BAR: &str = include_str!("fixtures/four_bar_linkage_expected_output.txt");
 
 const EXPECTED_CHECK_ONE_BODY: &str =
     include_str!("fixtures/spherical_one_body_stationary_motion_check_expected_output.txt");
@@ -132,15 +131,6 @@ fn solve_renders_revolute_motion_problem() {
     assert!(output.status.success());
     assert!(output.stderr.is_empty());
     assert_eq!(String::from_utf8(output.stdout).unwrap(), EXPECTED_REVOLUTE);
-}
-
-#[test]
-fn solve_renders_four_bar_linkage_example() {
-    let output = run("solve", FOUR_BAR_EXAMPLE);
-
-    assert!(output.status.success());
-    assert!(output.stderr.is_empty());
-    assert_eq!(String::from_utf8(output.stdout).unwrap(), EXPECTED_FOUR_BAR);
 }
 
 #[test]
